@@ -1,0 +1,35 @@
+# Konfigurasi minimal Supabase CLI (supabase link / db push / functions deploy)
+project_id = "e-arsip-perizinan-belu"
+
+[api]
+enabled = true
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+major_version = 15
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[storage]
+enabled = true
+file_size_limit = "25MiB"
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173/atur-sandi"]
+# Pendaftaran mandiri dimatikan: akun dibuat Super Admin melalui menu Pengguna.
+enable_signup = false
+minimum_password_length = 10
+password_requirements = "lower_upper_letters_digits"
+
+[auth.email]
+enable_signup = false
+enable_confirmations = false
+
+[functions.admin-users]
+verify_jwt = true

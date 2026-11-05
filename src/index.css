@@ -1,0 +1,105 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.625rem;
+
+  /* Palet: navy pemerintahan, putih, aksen biru arsip */
+  --background: #f4f7fb;
+  --foreground: #0f1e33;
+  --card: #ffffff;
+  --card-foreground: #0f1e33;
+  --popover: #ffffff;
+  --popover-foreground: #0f1e33;
+  --primary: #1f6fd1;
+  --primary-foreground: #ffffff;
+  --secondary: #e8eef7;
+  --secondary-foreground: #12305a;
+  --muted: #eef2f7;
+  --muted-foreground: #5a6b82;
+  --accent: #e3edfb;
+  --accent-foreground: #12305a;
+  --destructive: #c2362f;
+  --destructive-foreground: #ffffff;
+  --success: #1e8a5a;
+  --warning: #b7791f;
+  --border: #dce3ec;
+  --input: #cfd8e4;
+  --ring: #1f6fd1;
+
+  --navy: #0b2240;
+  --navy-soft: #12305a;
+  --navy-line: #1d3d68;
+  --navy-text: #b9c8de;
+}
+
+@theme inline {
+  --font-sans: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-navy: var(--navy);
+  --color-navy-soft: var(--navy-soft);
+  --color-navy-line: var(--navy-line);
+  --color-navy-text: var(--navy-text);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "ss01";
+  }
+  h1, h2, h3 {
+    letter-spacing: -0.015em;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .tabular { font-variant-numeric: tabular-nums; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* react-pdf */
+.react-pdf__Page__canvas { margin: 0 auto; box-shadow: 0 1px 3px rgb(15 30 51 / 0.18); }
+.react-pdf__Page { margin-bottom: 1rem; background: transparent !important; display: flex; justify-content: center; }
