@@ -53,6 +53,32 @@ export async function exportRawExcel(sheets: { name: string; rows: Record<string
   downloadBlob(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${safeFileName(fileBase)}-${stamp()}.xlsx`)
 }
 
+
+type JsPdfDoc = InstanceType<typeof import('jspdf').jsPDF>
+
+/** Kop surat dinas. Mengembalikan posisi Y di bawah garis kop. */
+export function drawLetterhead(doc: JsPdfDoc, identity: AppIdentity) {
+  const pageW = doc.internal.pageSize.getWidth()
+  const navy: [number, number, number] = [11, 34, 64]
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.setTextColor(...navy)
+  doc.text('PEMERINTAH KABUPATEN BELU', pageW / 2, 14, { align: 'center' })
+  doc.setFontSize(12)
+  doc.text(identity.agency_name.toUpperCase(), pageW / 2, 20, { align: 'center', maxWidth: pageW - 30 })
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8.5)
+  const contact = [identity.address, identity.phone && `Telp. ${identity.phone}`, identity.email].filter(Boolean).join(' · ')
+  doc.text(contact, pageW / 2, 25.5, { align: 'center' })
+  doc.setDrawColor(...navy)
+  doc.setLineWidth(0.8)
+  doc.line(14, 28.5, pageW - 14, 28.5)
+  doc.setLineWidth(0.2)
+  doc.line(14, 29.6, pageW - 14, 29.6)
+
+  return 33
+}
+
 export async function exportPdf<T>(
   rows: T[],
   columns: ExportColumn<T>[],
@@ -65,22 +91,7 @@ export async function exportPdf<T>(
   const pageW = doc.internal.pageSize.getWidth()
   const navy: [number, number, number] = [11, 34, 64]
 
-  // Kop
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
-  doc.setTextColor(...navy)
-  doc.text('PEMERINTAH KABUPATEN BELU', pageW / 2, 14, { align: 'center' })
-  doc.setFontSize(12)
-  doc.text(meta.identity.agency_name.toUpperCase(), pageW / 2, 20, { align: 'center', maxWidth: pageW - 30 })
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(8.5)
-  const contact = [meta.identity.address, meta.identity.phone && `Telp. ${meta.identity.phone}`, meta.identity.email].filter(Boolean).join(' · ')
-  doc.text(contact, pageW / 2, 25.5, { align: 'center' })
-  doc.setDrawColor(...navy)
-  doc.setLineWidth(0.8)
-  doc.line(14, 28.5, pageW - 14, 28.5)
-  doc.setLineWidth(0.2)
-  doc.line(14, 29.6, pageW - 14, 29.6)
+  drawLetterhead(doc, meta.identity)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11.5)

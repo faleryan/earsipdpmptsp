@@ -10,6 +10,7 @@ import { getArchiveYears } from '@/lib/api'
 import { formatBytes, formatDate, formatDateTime, formatNumber, formatRelative, shortPermitName } from '@/lib/format'
 import { ACTIVITY_LABELS, ENTITY_LABELS, categoryLabel } from '@/lib/constants'
 import { useAuth } from '@/hooks/useAuth'
+import { useExpirySummary, daysLeftLabel } from '@/hooks/useExpiry'
 import { PageHeader } from '@/components/common/PageHeader'
 import { StatCard } from '@/components/common/StatCard'
 import { EmptyState, ErrorState, FullPageLoader } from '@/components/common/States'
@@ -39,6 +40,7 @@ export default function DashboardPage() {
   })
 
   const s = stats.data
+  const expiry = useExpirySummary()
   const greeting = (() => {
     const h = new Date().getHours()
     return h < 11 ? 'Selamat pagi' : h < 15 ? 'Selamat siang' : h < 18 ? 'Selamat sore' : 'Selamat malam'
@@ -171,6 +173,45 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+
+            <Card className={expiry.data && expiry.data.buckets.some((b) => b.months <= 1 && b.count) ? 'border-[#f1c3bf]' : undefined}>
+              <CardHeader className="flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Izin akan berakhir</CardTitle>
+                  <CardDescription>Belum diajukan perpanjangan.</CardDescription>
+                </div>
+                <Button asChild variant="link" size="sm"><Link to="/masa-berlaku">Semua</Link></Button>
+              </CardHeader>
+              <CardContent>
+                {expiry.data ? (
+                  <>
+                    <div className="grid grid-cols-4 gap-2 text-center">
+                      {[...expiry.data.buckets].sort((a, b) => a.months - b.months).map((b) => (
+                        <Link key={b.months} to={`/masa-berlaku?dalam=${b.months}`} className="rounded-md border px-1 py-2 hover:border-primary/50">
+                          <p className={`text-xl font-bold tabular ${b.months <= 1 && b.count ? 'text-destructive' : ''}`}>{formatNumber(b.count)}</p>
+                          <p className="text-[11px] text-muted-foreground">≤ {b.months} bulan</p>
+                        </Link>
+                      ))}
+                      <Link to="/masa-berlaku?dalam=lewat" className="rounded-md border px-1 py-2 hover:border-primary/50">
+                        <p className="text-xl font-bold tabular">{formatNumber(expiry.data.expired)}</p>
+                        <p className="text-[11px] text-muted-foreground">Berakhir</p>
+                      </Link>
+                    </div>
+                    <ul className="mt-3 space-y-1.5">
+                      {expiry.data.nearest.slice(0, 3).map((n) => (
+                        <li key={n.permit_id} className="flex justify-between gap-2 text-sm">
+                          <Link to={`/permohonan/${n.application_id}`} className="truncate hover:text-primary">{n.applicant_name}</Link>
+                          <span className="shrink-0 text-xs text-muted-foreground">{daysLeftLabel(n.days_left)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {expiry.data.without_validity > 0 && (
+                      <p className="mt-3 text-xs text-muted-foreground">{formatNumber(expiry.data.without_validity)} izin belum memiliki tanggal berakhir — isi masa berlaku di <Link className="text-primary hover:underline" to="/jenis-izin">jenis perizinan</Link>.</p>
+                    )}
+                  </>
+                ) : <p className="py-6 text-center text-sm text-muted-foreground">Memuat…</p>}
               </CardContent>
             </Card>
 

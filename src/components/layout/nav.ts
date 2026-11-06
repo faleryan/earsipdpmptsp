@@ -1,5 +1,5 @@
 import {
-  Archive, BarChart3, Building2, ClipboardList, FileBadge2, FileSearch, FileStack, FileUp, FolderTree,
+  Archive, BarChart3, CalendarClock, Table2, Building2, ClipboardList, FileBadge2, FileSearch, FileStack, FileUp, FolderTree,
   History, LayoutDashboard, ScrollText, Settings, Tags, Users, UserSquare2,
 } from 'lucide-react'
 import type { Permission } from '@/lib/permissions'
@@ -30,6 +30,7 @@ export const NAV: NavGroup[] = [
       { to: '/permohonan', label: 'Data permohonan', icon: ClipboardList },
       { to: '/izin', label: 'Izin terbit', icon: FileBadge2 },
       { to: '/dokumen', label: 'Dokumen PDF', icon: FileStack },
+      { to: '/masa-berlaku', label: 'Masa berlaku izin', icon: CalendarClock },
     ],
   },
   {
@@ -51,7 +52,8 @@ export const NAV: NavGroup[] = [
   {
     label: 'Laporan & kontrol',
     items: [
-      { to: '/laporan', label: 'Laporan', icon: BarChart3, permission: 'reports.view' },
+      { to: '/laporan/rekap', label: 'Rekap izin', icon: Table2, permission: 'reports.view' },
+      { to: '/laporan', label: 'Laporan', icon: BarChart3, permission: 'reports.view', end: true },
       { to: '/audit', label: 'Audit trail', icon: ScrollText, permission: 'audit.view' },
     ],
   },

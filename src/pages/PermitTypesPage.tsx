@@ -38,10 +38,13 @@ const schema = z.object({
   required_documents: z.array(z.string()),
   description: z.string().max(1000).optional(),
   is_active: z.boolean(),
+  report_group: z.string().max(200).optional(),
+  report_order: z.string().regex(/^-?\d{0,4}$/, 'Isi angka').optional(),
+  recalc_overwrite: z.boolean(),
 })
 type FormValues = z.infer<typeof schema>
 
-function PermitTypeDialog({ open, onOpenChange, item }: { open: boolean; onOpenChange: (o: boolean) => void; item?: PermitType | null }) {
+function PermitTypeDialog({ open, onOpenChange, item, groups }: { open: boolean; onOpenChange: (o: boolean) => void; item?: PermitType | null; groups: string[] }) {
   const qc = useQueryClient()
   const classifications = useQuery({ queryKey: ['classifications'], queryFn: listClassifications })
   const form = useForm<FormValues>({
@@ -51,6 +54,7 @@ function PermitTypeDialog({ open, onOpenChange, item }: { open: boolean; onOpenC
       classification_id: item?.classification_id ?? '', validity_years: item?.validity_years?.toString() ?? '',
       required_documents: item?.required_documents ?? ['surat_permohonan', 'identitas_pemohon', 'dokumen_persyaratan', 'surat_keputusan'],
       description: item?.description ?? '', is_active: item?.is_active ?? true,
+      report_group: item?.report_group ?? '', report_order: String(item?.report_order ?? 0), recalc_overwrite: false,
     },
   })
   const mutation = useMutation({
@@ -59,12 +63,25 @@ function PermitTypeDialog({ open, onOpenChange, item }: { open: boolean; onOpenC
         name: v.name, code: v.code || null, sector: v.sector, classification_id: v.classification_id || null,
         validity_years: v.validity_years ? Number(v.validity_years) : null,
         required_documents: v.required_documents, description: v.description || null, is_active: v.is_active,
+        report_group: v.report_group?.trim() || null, report_order: Number(v.report_order || 0),
       }
-      const res = item ? await supabase.from('permit_types').update(payload).eq('id', item.id) : await supabase.from('permit_types').insert(payload)
+      const res = item
+        ? await supabase.from('permit_types').update(payload).eq('id', item.id).select('id').single()
+        : await supabase.from('permit_types').insert(payload).select('id').single()
       if (res.error) throw res.error
+      // Masa berlaku izin yang sudah terbit dihitung ulang bila masa berlaku jenis izin diisi/diubah
+      const changed = payload.validity_years !== (item?.validity_years ?? null) || v.recalc_overwrite
+      if (payload.validity_years && changed) {
+        const { data, error } = await supabase.rpc('recalculate_permit_validity', { p_permit_type_id: res.data.id, p_overwrite: v.recalc_overwrite })
+        if (error) throw error
+        return data as number
+      }
+      return null
     },
-    onSuccess: () => {
+    onSuccess: (n) => {
       toast.success(item ? 'Jenis izin diperbarui.' : 'Jenis izin ditambahkan.')
+      if (n !== null) toast.info(`Tanggal berakhir ${n} izin terbit dihitung dari masa berlaku.`)
+      qc.invalidateQueries({ queryKey: ['expiry'] })
       qc.invalidateQueries({ queryKey: ['permit_types'] })
       onOpenChange(false)
     },
@@ -92,9 +109,18 @@ function PermitTypeDialog({ open, onOpenChange, item }: { open: boolean; onOpenC
                 {classifications.data?.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
               </NativeSelect>
             </FormField>
-            <FormField label="Masa berlaku (tahun)" htmlFor="pt-valid" error={err.validity_years?.message} hint="Kosongkan bila tidak ada; dipakai menghitung tanggal berakhir saat impor.">
+            <FormField label="Masa berlaku (tahun)" htmlFor="pt-valid" error={err.validity_years?.message} hint="Dipakai menghitung tanggal berakhir izin & notifikasi masa berlaku. Kosongkan bila tidak ada.">
               <Input id="pt-valid" inputMode="numeric" {...form.register('validity_years')} />
             </FormField>
+            <label className="flex items-start gap-2 text-sm sm:col-span-2">
+              <Controller control={form.control} name="recalc_overwrite" render={({ field }) => <Checkbox className="mt-0.5" checked={field.value} onCheckedChange={(v) => field.onChange(!!v)} />} />
+              <span>Hitung ulang juga izin yang sudah punya tanggal berakhir <span className="text-muted-foreground">(tanggal yang pernah diubah manual tetap tidak disentuh)</span></span>
+            </label>
+            <FormField label="Kelompok laporan rekap" htmlFor="pt-group" hint="Mis. “PERIZINAN BERUSAHA BERBASIS RISIKO”. Kosong = dikelompokkan per sektor saja.">
+              <Input id="pt-group" list="group-list" {...form.register('report_group')} />
+              <datalist id="group-list">{groups.map((g) => <option key={g} value={g} />)}</datalist>
+            </FormField>
+            <FormField label="Urutan di laporan" htmlFor="pt-order" error={err.report_order?.message}><Input id="pt-order" inputMode="numeric" {...form.register('report_order')} /></FormField>
             <div className="sm:col-span-2">
               <p className="mb-2 text-sm font-medium">Dokumen wajib dalam berkas</p>
               <Controller
@@ -157,7 +183,7 @@ export default function PermitTypesPage() {
       cell: (r) => (
         <div className="min-w-64">
           <p className="font-medium">{r.name}</p>
-          <p className="text-xs text-muted-foreground">{[r.code, r.validity_years ? `berlaku ${r.validity_years} tahun` : null].filter(Boolean).join(' · ') || '—'}</p>
+          <p className="text-xs text-muted-foreground">{[r.code, r.validity_years ? `berlaku ${r.validity_years} tahun` : 'tanpa masa berlaku', r.report_group].filter(Boolean).join(' · ')}</p>
         </div>
       ),
     },
@@ -196,7 +222,8 @@ export default function PermitTypesPage() {
           empty={<EmptyState title="Belum ada jenis perizinan" description="Lakukan impor SiCANTIK atau tambahkan secara manual." />}
           footer={<p className="border-t px-4 py-3 text-sm text-muted-foreground">{rows?.length ?? 0} jenis izin</p>} />
       </Card>
-      <PermitTypeDialog open={editing !== undefined} onOpenChange={(o) => !o && setEditing(undefined)} item={editing} />
+      <PermitTypeDialog open={editing !== undefined} onOpenChange={(o) => !o && setEditing(undefined)} item={editing}
+        groups={Array.from(new Set((list.data ?? []).map((r) => r.report_group).filter((g): g is string => !!g)))} />
       <ConfirmDialog
         open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}
         title="Hapus jenis izin?"

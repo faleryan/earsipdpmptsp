@@ -21,6 +21,8 @@ const ImportPage = lazy(() => import('@/pages/import/ImportPage'))
 const ImportHistoryPage = lazy(() => import('@/pages/import/ImportHistoryPage'))
 const ImportBatchPage = lazy(() => import('@/pages/import/ImportBatchPage'))
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'))
+const RecapPage = lazy(() => import('@/pages/RecapPage'))
+const ExpiryPage = lazy(() => import('@/pages/ExpiryPage'))
 const AuditPage = lazy(() => import('@/pages/AuditPage'))
 const UsersPage = lazy(() => import('@/pages/UsersPage'))
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
@@ -65,6 +67,8 @@ export default function App() {
         <Route path="impor/riwayat" element={<ImportHistoryPage />} />
         <Route path="impor/:id" element={<ImportBatchPage />} />
         <Route path="laporan" element={<RequirePermission permission="reports.view"><ReportsPage /></RequirePermission>} />
+        <Route path="laporan/rekap" element={<RequirePermission permission="reports.view"><RecapPage /></RequirePermission>} />
+        <Route path="masa-berlaku" element={<ExpiryPage />} />
         <Route path="audit" element={<RequirePermission permission="audit.view"><AuditPage /></RequirePermission>} />
         <Route path="pengguna" element={<RequirePermission permission="users.manage"><UsersPage /></RequirePermission>} />
         <Route path="pengaturan" element={<RequirePermission permission="settings.manage"><SettingsPage /></RequirePermission>} />

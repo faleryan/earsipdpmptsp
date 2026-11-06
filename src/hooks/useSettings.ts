@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import type { SystemSetting } from '@/types'
+import { DEFAULT_SIGNATORIES, type Signatories } from '@/lib/recapExport'
+import type { LocationRule } from '@/lib/recap'
 
 export interface AppIdentity {
   app_name: string
@@ -18,6 +20,9 @@ export interface SettingsMap {
   downloadRoles: string[]
   importChunkSize: number
   idleTimeoutMinutes: number
+  signatories: Signatories
+  locationRules: LocationRule[]
+  expiryThresholds: number[]
   raw: Record<string, SystemSetting>
 }
 
@@ -46,6 +51,16 @@ export function useSettings() {
         downloadRoles: v<string[]>('documents.download_roles', ['super_admin', 'admin_arsip', 'pimpinan']),
         importChunkSize: Number(v('import.chunk_size', 200)),
         idleTimeoutMinutes: Number(v('security.idle_timeout_minutes', 60)),
+        signatories: (() => {
+          const sg = v<Partial<Signatories>>('report.signatories', {})
+          return {
+            city: sg.city ?? DEFAULT_SIGNATORIES.city,
+            approver: { ...DEFAULT_SIGNATORIES.approver, ...(sg.approver ?? {}) },
+            preparer: { ...DEFAULT_SIGNATORIES.preparer, ...(sg.preparer ?? {}) },
+          }
+        })(),
+        locationRules: v<LocationRule[]>('report.location_rules', []),
+        expiryThresholds: v<number[]>('notifications.expiry_thresholds_months', [6, 3, 1]).map(Number).sort((a, b) => b - a),
         raw,
       }
     },

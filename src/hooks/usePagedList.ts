@@ -9,10 +9,12 @@ interface Options {
   defaultSort: SortState
   pageSize?: number
   enabled?: boolean
+  /** kolom unik pengurut kedua agar paging stabil */
+  tieBreaker?: string
 }
 
 /** Daftar berhalaman dengan count exact, urutan, dan reset halaman saat filter berubah. */
-export function usePagedList<T>({ queryKey, build, defaultSort, pageSize = 25, enabled = true }: Options) {
+export function usePagedList<T>({ queryKey, build, defaultSort, pageSize = 25, enabled = true, tieBreaker = 'id' }: Options) {
   const [page, setPage] = useState(1)
   const [size, setSize] = useState(pageSize)
   const [sort, setSort] = useState<SortState>(defaultSort)
@@ -33,7 +35,7 @@ export function usePagedList<T>({ queryKey, build, defaultSort, pageSize = 25, e
       const from = (page - 1) * size
       const { data, count, error } = await build()
         .order(sort.column, { ascending: sort.ascending, nullsFirst: false })
-        .order('id', { ascending: true })
+        .order(tieBreaker, { ascending: true })
         .range(from, from + size - 1)
       if (error) throw error
       return { rows: (data ?? []) as T[], total: count ?? 0 }

@@ -90,6 +90,9 @@ export const ACTIVITY_LABELS: Record<string, string> = {
   'user.create': 'Membuat pengguna',
   'user.reset_password': 'Mengatur ulang kata sandi',
   'user.delete': 'Menghapus pengguna',
+  'permit.reminded': 'Mengingatkan masa berlaku',
+  'permit.reminder_cleared': 'Membatalkan tanda pengingat',
+  'permit.recalculate_validity': 'Menghitung masa berlaku',
 }
 
 export const ENTITY_LABELS: Record<string, string> = {

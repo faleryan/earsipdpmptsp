@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ROLE_LABELS } from '@/lib/constants'
 import { BrandMark, SidebarNav } from './Sidebar'
+import { ExpiryBell } from './ExpiryBell'
 
 export function Topbar() {
   const { profile, role, signOut } = useAuth()
@@ -54,7 +55,8 @@ export function Topbar() {
         />
       </form>
 
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-1">
+        <ExpiryBell />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-muted" aria-label="Menu akun">

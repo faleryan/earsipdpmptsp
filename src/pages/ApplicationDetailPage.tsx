@@ -11,6 +11,7 @@ import { formatBytes, formatDate, formatDateTime, maskNik } from '@/lib/format'
 import { ACTIVITY_LABELS, DOCUMENT_CATEGORIES, ENTITY_LABELS, FINAL_DISPOSITION, categoryLabel } from '@/lib/constants'
 import { useAuth } from '@/hooks/useAuth'
 import { useSettings } from '@/hooks/useSettings'
+import { daysLeftLabel, daysLeftTone } from '@/hooks/useExpiry'
 import { PageHeader } from '@/components/common/PageHeader'
 import { ApplicationStatusBadge, AccessBadge, PermitStatusBadge, SourceBadge } from '@/components/common/Badges'
 import { DocumentTabs } from '@/components/common/DocumentTabs'
@@ -369,7 +370,18 @@ export default function ApplicationDetailPage() {
                 <dl className="divide-y">
                   <Info label="Nomor izin"><span className="font-medium">{permit.permit_number}</span></Info>
                   <Info label="Tanggal penetapan">{formatDate(permit.issued_date, 'd MMMM yyyy')}</Info>
-                  <Info label="Berlaku sampai">{permit.valid_until ? formatDate(permit.valid_until, 'd MMMM yyyy') : 'Tidak ditentukan'}</Info>
+                  <Info label="Berlaku sampai">
+                    {permit.valid_until ? (
+                      <span className="flex flex-wrap items-center gap-2">
+                        {formatDate(permit.valid_until, 'd MMMM yyyy')}
+                        {permit.status === 'aktif' && (() => {
+                          const d = Math.round((new Date(`${permit.valid_until}T00:00:00`).getTime() - new Date(new Date().toDateString()).getTime()) / 86400000)
+                          return d <= 183 ? <Badge variant={daysLeftTone(d)}>{daysLeftLabel(d)}</Badge> : null
+                        })()}
+                      </span>
+                    ) : 'Tidak ditentukan'}
+                  </Info>
+                  {permit.renewal_notified_at && <Info label="Pengingat">{formatDate(permit.renewal_notified_at)}{permit.renewal_note ? ` — ${permit.renewal_note}` : ''}</Info>}
                   <Info label="Status"><PermitStatusBadge status={permit.status} /></Info>
                   {permit.signed_by && <Info label="Penandatangan">{permit.signed_by}</Info>}
                   {permit.notes && <Info label="Catatan">{permit.notes}</Info>}

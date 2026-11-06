@@ -429,5 +429,75 @@ cur.execute("select count(*) n from applications")
 check("tidak ada duplikasi setelah pemulihan", cur.fetchone()["n"] == len(rows) + 1)
 conn.rollback()
 
+print("\n== 13. Rekap harian & masa berlaku")
+c = as_user(users["pimpinan"])
+c.execute("select sum(total) n from report_daily_counts('2026-01-01', '2026-12-31', 'issued')")
+check("rekap per tanggal penetapan = jumlah izin terbit", int(c.fetchone()["n"]) == len([r for r in rows if r.get("permit_number") not in (None, "-", "")]) + 1)
+c.execute("select sum(total) n from report_daily_counts('2026-01-01', '2026-12-31', 'application')")
+check("rekap per tanggal permohonan = jumlah permohonan", int(c.fetchone()["n"]) == len(rows) + 1)
+c.execute("select day, sum(total) n from report_daily_counts('2026-10-01', '2026-10-31', 'issued') group by day order by day")
+oct_rows = c.fetchall()
+check("rekap Oktober hanya berisi tanggal Oktober", all(str(r["day"]).startswith("2026-10") for r in oct_rows) and len(oct_rows) > 0)
+conn.rollback()
+expect_error("rentang tanggal terbalik ditolak", lambda: as_user(users["pimpinan"]).execute("select * from report_daily_counts('2026-12-01','2026-01-01','issued')"))
+c = as_user(None)
+try:
+    c.execute("select * from report_daily_counts('2026-01-01','2026-12-31','issued')")
+    check("tanpa login tidak bisa rekap", False)
+except psycopg2.Error:
+    check("tanpa login tidak bisa rekap", True)
+conn.rollback()
+
+# Masa berlaku: atur 5 tahun untuk SIP Perawat Vokasi lalu hitung ulang
+c = as_user(users["admin"])
+c.execute("select id from permit_types where name ilike 'Surat Izin Praktik Perawat Vokasi%'")
+pt_id = c.fetchone()["id"]
+c.execute("update permit_types set validity_years = 5 where id = %s", (pt_id,))
+c.execute("select recalculate_permit_validity(%s) n", (pt_id,))
+n_recalc = c.fetchone()["n"]
+conn.commit()
+check("hitung ulang masa berlaku mengisi izin jenis tsb", n_recalc > 100, n_recalc)
+cur = admin_cursor()
+cur.execute("select count(*) n from permits where is_manually_edited")
+check("hitung ulang tidak menandai edit manual", cur.fetchone()["n"] <= 1)
+# Buat 3 izin hampir berakhir: 20 hari, 75 hari, 160 hari; 1 sudah lewat
+cur.execute("""select permit_id as id from v_permit_expiry
+               where permit_type_id=%s and not is_renewed order by issued_date desc limit 4""", (pt_id,))
+ids = [r["id"] for r in cur.fetchall()]
+for pid, days in zip(ids, [20, 75, 160, -10]):
+    cur.execute("update permits set valid_until = today_wita() + %s, issued_date = least(issued_date, today_wita() + %s - 1) where id=%s", (days, days, pid))
+conn.commit()
+c = as_user(users["operator"])
+c.execute("select get_expiry_summary() s")
+s = c.fetchone()["s"]
+b = {x["months"]: x["count"] for x in s["buckets"]}
+print("    ringkasan:", b, "kedaluwarsa", s["expired"])
+check("notifikasi <=1 bulan", b.get(1) == 1, b)
+check("notifikasi <=3 bulan (kumulatif)", b.get(3) == 2, b)
+check("notifikasi <=6 bulan (kumulatif)", b.get(6) == 3, b)
+check("izin lewat masa berlaku terdeteksi", s["expired"] == 1, s["expired"])
+c.execute("select mark_permit_reminded(%s, 'Dihubungi via WA')", (ids[0],))
+c.execute("select renewal_notified_at is not null ok, renewal_note from v_permit_expiry where permit_id=%s", (ids[0],))
+r = c.fetchone()
+check("operator dapat menandai sudah diingatkan", r["ok"] and r["renewal_note"] == "Dihubungi via WA")
+conn.commit()
+expect_error("pimpinan tidak dapat menandai pengingat", lambda: as_user(users["pimpinan"]).execute("select mark_permit_reminded(%s)", (ids[1],)))
+# Perpanjangan menghapus dari notifikasi
+cur = admin_cursor()
+cur.execute("select a.applicant_id, a.permit_type_id from permits pm join applications a on a.id=pm.application_id where pm.id=%s", (ids[1],))
+ref = cur.fetchone()
+conn.rollback()
+c = as_user(users["operator"])
+c.execute("insert into applications (application_number, applicant_id, permit_type_id, application_type, application_date) values ('PERPANJANG-1', %s, %s, 'Perpanjangan', today_wita())",
+          (ref["applicant_id"], ref["permit_type_id"]))
+conn.commit()
+c = as_user(users["operator"])
+c.execute("select get_expiry_summary() s")
+b2 = {x["months"]: x["count"] for x in c.fetchone()["s"]["buckets"]}
+c.execute("select is_renewed from v_permit_expiry where permit_id=%s", (ids[1],))
+check("izin yang sudah diajukan perpanjangan keluar dari notifikasi", c.fetchone()["is_renewed"] and b2.get(3) == 1, b2)
+conn.rollback()
+expect_error("operator tidak dapat menghitung ulang masa berlaku", lambda: as_user(users["operator"]).execute("select recalculate_permit_validity(%s)", (pt_id,)))
+
 print(f"\nHasil: {passed} lulus, {failed} gagal")
 sys.exit(1 if failed else 0)

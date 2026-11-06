@@ -29,7 +29,7 @@ Dokumentasi lanjutan:
 │   ├── lib/                 supabase, api & filter, ekspor, dokumen, import/ (parser + normalisasi)
 │   └── hooks/               auth, pengaturan, daftar berhalaman, filter di URL
 ├── supabase/
-│   ├── migrations/          001 skema · 002 keamanan/RLS/audit · 003 mesin impor · 004 laporan/backup · 005 storage
+│   ├── migrations/          001 skema · 002 keamanan/RLS/audit · 003 mesin impor · 004 laporan/backup · 005 storage · 006 rekap & masa berlaku
 │   ├── seed.sql             Peran, klasifikasi contoh, pengaturan sistem
 │   ├── functions/admin-users  Edge Function manajemen akun (Super Admin)
 │   └── tests/               Uji integrasi database (PostgreSQL + stub Supabase)
@@ -52,7 +52,8 @@ Dokumentasi lanjutan:
    psql "postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres" -f supabase/seed.sql
    ```
 
-   Tanpa CLI: buka **SQL Editor**, jalankan berurutan kelima file di `supabase/migrations/`, lalu `supabase/seed.sql`.
+   Tanpa CLI: buka **SQL Editor**, jalankan berurutan keenam file di `supabase/migrations/`, lalu `supabase/seed.sql`.
+   Sudah memasang versi sebelumnya? Cukup jalankan `20261106000006_recap_and_expiry.sql`.
 3. **Authentication → Providers → Email**: matikan *Allow new users to sign up* (akun dibuat Super Admin).
    Atur *Site URL* ke alamat Vercel Anda dan tambahkan `https://<domain>/atur-sandi` pada *Redirect URLs*.
 4. **Super Admin pertama**: Authentication → Users → *Add user* (centang *Auto Confirm*).
@@ -105,12 +106,39 @@ Perintah lain: `npm run build` (typecheck + build produksi), `npm test` (uji par
 3. **Pimpinan** memantau dashboard dan mengekspor laporan Excel/PDF berkop dinas.
 4. **Super Admin** mengelola pengguna, pengaturan, dan membuat cadangan berkala.
 
+### Rekap izin harian / mingguan / bulanan
+
+Menu **Rekap izin** menyusun matriks seperti spreadsheet rekapan dinas: baris per jenis izin
+(dikelompokkan A, B, C… per kelompok laporan/sektor dengan JUMLAH tiap kelompok dan TOTAL),
+kolom per hari dengan subtotal mingguan **Mg I–V** (minggu Senin–Minggu), per minggu, atau per bulan.
+
+- Periode bebas (pintasan: bulan ini, bulan lalu, tahun ini). Harian maks. 31 hari.
+- Menghitung **izin terbit** (tanggal penetapan) atau **permohonan masuk** (tanggal permohonan).
+- Baris dapat diganti **per lokasi izin** atau **per kecamatan** (aturan pola di Pengaturan), plus filter
+  sektor, jenis permohonan, dan "lokasi izin memuat …".
+- **Unduh PDF** (A4/F4/A3 lanskap) berkop dinas dengan blok tanda tangan *Mengetahui, Kepala Dinas* dan
+  *Kepala Bidang* (nama, pangkat, NIP; kosong = titik-titik untuk ditulis tangan). Penandatangan bawaan
+  diatur di *Pengaturan → Laporan & notifikasi*. Juga tersedia ekspor Excel.
+- Kelompok laporan (mis. "PERIZINAN BERUSAHA BERBASIS RISIKO") dan urutan baris diatur per jenis izin.
+
+### Notifikasi masa berlaku izin
+
+- Isi **Masa berlaku (tahun)** pada jenis izin → tanggal berakhir izin dihitung dari tanggal penetapan
+  (izin yang tanggalnya pernah diubah manual tidak disentuh). Kolom "berlaku sampai" dari SiCANTIK
+  juga dapat dipetakan saat impor.
+- Lonceng di bilah atas dan kartu dashboard menampilkan izin aktif yang berakhir dalam **≤ 6, ≤ 3, ≤ 1 bulan**
+  (ambang dapat diubah) serta yang sudah berakhir. Izin yang pemegangnya sudah mengajukan Perpanjangan/
+  Perubahan jenis izin yang sama otomatis keluar dari notifikasi.
+- Halaman **Masa berlaku izin**: kirim pengingat lewat **WhatsApp** (pesan sudah terisi), tandai "sudah
+  diingatkan" dengan catatan, ekspor Excel/PDF. Semua tindakan tercatat di audit trail.
+
 ## 6. Pengujian yang sudah dijalankan
 
-- `supabase/tests/db_test.py` — 81 uji integrasi pada PostgreSQL 16 dengan data ekspor SiCANTIK asli
+- `supabase/tests/db_test.py` — 96 uji integrasi pada PostgreSQL 16 dengan data ekspor SiCANTIK asli
   (857 baris): impor, impor ulang, deteksi perubahan, perlindungan edit manual, validasi, duplikat,
   RLS per peran, versi dokumen, kebijakan storage, audit trail append-only, dashboard, laporan,
-  cadangan & pemulihan.
+  cadangan & pemulihan, rekap harian, perhitungan masa berlaku, ambang notifikasi 6/3/1 bulan,
+  pengecualian izin yang sudah diperpanjang.
 
   ```bash
   createdb earsip_test
@@ -121,7 +149,7 @@ Perintah lain: `npm run build` (typecheck + build produksi), `npm test` (uji par
   python3 supabase/tests/db_test.py /tmp/rows.json "dbname=earsip_test"
   ```
 
-- `npm test` — parser & normalisasi impor (tanggal Excel, format tanggal Indonesia, NIK panjang, CSV `;`,
+- `npm test` — matriks rekap (kolom hari/Mg I–V/bulan, subtotal, kecamatan) serta parser & normalisasi impor (tanggal Excel, format tanggal Indonesia, NIK panjang, CSV `;`,
   duplikat). Dengan `IMPORT_SAMPLE=/path/ekspor.xlsx npm test` hasilnya dicocokkan dengan file asli.
 - Uji end-to-end antarmuka (Playwright) terhadap GoTrue + PostgREST asli: login, impor 857 baris lewat
   wizard, unggah PDF + validasi file palsu, pratinjau, unduh, versi baru, edit manual, impor ulang,

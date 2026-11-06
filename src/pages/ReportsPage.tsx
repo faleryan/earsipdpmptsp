@@ -114,7 +114,11 @@ export default function ReportsPage() {
 
   return (
     <div>
-      <PageHeader title="Laporan" description="Rekapitulasi dan daftar arsip siap cetak dengan kop DPMPTSP Kabupaten Belu, dalam format Excel atau PDF." />
+      <PageHeader
+        title="Laporan"
+        description="Rekapitulasi dan daftar arsip siap cetak dengan kop DPMPTSP Kabupaten Belu, dalam format Excel atau PDF."
+        actions={<Button asChild><Link to="/laporan/rekap">Rekap harian / mingguan / bulanan</Link></Button>}
+      />
       <Card className="mb-4">
         <CardContent className="grid gap-3 pt-5 sm:grid-cols-[repeat(2,minmax(0,12rem))_1fr] sm:items-end">
           <div className="flex flex-col gap-1.5"><Label htmlFor="r-from">Dari tanggal</Label><Input id="r-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>

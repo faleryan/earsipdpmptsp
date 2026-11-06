@@ -19,6 +19,9 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input, NativeSelect } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { RoleCode } from '@/types'
+import { SignatoryFields } from '@/components/common/SignatoryFields'
+import type { Signatories } from '@/lib/recapExport'
+import type { LocationRule } from '@/lib/recap'
 
 async function saveSetting(key: string, value: unknown) {
   const { error } = await supabase.from('system_settings').update({ value }).eq('key', key)
@@ -163,6 +166,97 @@ function SectorRulesCard({ rules, mapping }: { rules: Rule[]; mapping: Record<st
   )
 }
 
+
+function SignatoriesCard({ initial }: { initial: Signatories }) {
+  const qc = useQueryClient()
+  const [v, setV] = useState(initial)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => setV(initial), [initial])
+  return (
+    <Card>
+      <CardHeader><CardTitle>Penandatangan laporan rekap</CardTitle><CardDescription>Dicetak di bawah tabel PDF rekap izin. Dapat diubah sesaat sebelum mengunduh.</CardDescription></CardHeader>
+      <CardContent className="space-y-5">
+        <FormField label="Tempat penandatanganan" htmlFor="sg-city" className="max-w-xs"><Input id="sg-city" value={v.city} onChange={(e) => setV({ ...v, city: e.target.value })} /></FormField>
+        <div className="grid gap-5 md:grid-cols-2">
+          <div><p className="mb-2 text-sm font-semibold">Kiri — mengetahui (Kepala Dinas)</p><SignatoryFields prefix="sg-a" value={v.approver} onChange={(x) => setV({ ...v, approver: x })} /></div>
+          <div><p className="mb-2 text-sm font-semibold">Kanan — pembuat laporan (Kepala Bidang)</p><SignatoryFields prefix="sg-p" value={v.preparer} onChange={(x) => setV({ ...v, preparer: x })} /></div>
+        </div>
+        <Button loading={busy} onClick={async () => {
+          if (v.approver.nip && !/^[0-9 ]{8,25}$/.test(v.approver.nip)) return void toast.error('NIP Kepala Dinas hanya angka.')
+          if (v.preparer.nip && !/^[0-9 ]{8,25}$/.test(v.preparer.nip)) return void toast.error('NIP Kepala Bidang hanya angka.')
+          setBusy(true)
+          try { await saveSetting('report.signatories', v); toast.success('Penandatangan disimpan.'); qc.invalidateQueries({ queryKey: ['system_settings'] }) }
+          catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+        }}>Simpan penandatangan</Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ThresholdsCard({ initial }: { initial: number[] }) {
+  const qc = useQueryClient()
+  const [v, setV] = useState<number[]>(initial)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => setV(initial), [initial])
+  return (
+    <Card>
+      <CardHeader><CardTitle>Notifikasi masa berlaku izin</CardTitle><CardDescription>Pilih kapan izin mulai muncul di notifikasi (bulan sebelum berakhir). Maksimal 4 pilihan.</CardDescription></CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap gap-3">
+          {[1, 2, 3, 4, 6, 9, 12].map((m) => (
+            <label key={m} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+              <Checkbox checked={v.includes(m)} onCheckedChange={(c) => setV(c ? [...v, m] : v.filter((x) => x !== m))} />
+              {m} bulan
+            </label>
+          ))}
+        </div>
+        <Button loading={busy} onClick={async () => {
+          if (!v.length || v.length > 4) return void toast.error('Pilih 1 sampai 4 ambang.')
+          setBusy(true)
+          try { await saveSetting('notifications.expiry_thresholds_months', [...v].sort((a, b) => b - a)); toast.success('Ambang notifikasi disimpan.'); qc.invalidateQueries({ queryKey: ['system_settings'] }); qc.invalidateQueries({ queryKey: ['expiry'] }) }
+          catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+        }}>Simpan ambang</Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function LocationRulesCard({ initial }: { initial: LocationRule[] }) {
+  const qc = useQueryClient()
+  const [list, setList] = useState<LocationRule[]>(initial)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => setList(initial), [initial])
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Aturan kecamatan untuk rekap per lokasi</CardTitle>
+        <CardDescription>Teks lokasi izin dicocokkan dengan pola (regex, tanpa membedakan huruf besar) dari atas ke bawah. Tambahkan nama desa/fasilitas, mis. pola <code>wedomu|halilulik</code> → Tasifeto Barat, agar lebih banyak lokasi teridentifikasi.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {list.map((r, idx) => (
+          <div key={idx} className="grid gap-2 sm:grid-cols-[1fr_14rem_auto]">
+            <Input aria-label="Pola" className="font-mono text-xs" value={r.pattern} onChange={(e) => setList(list.map((x, j) => (j === idx ? { ...x, pattern: e.target.value } : x)))} />
+            <Input aria-label="Kecamatan" value={r.label} onChange={(e) => setList(list.map((x, j) => (j === idx ? { ...x, label: e.target.value } : x)))} />
+            <Button variant="ghost" size="icon" aria-label="Hapus aturan" onClick={() => setList(list.filter((_, j) => j !== idx))}><Trash2 /></Button>
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setList([...list, { pattern: '', label: '' }])}><Plus /> Tambah aturan</Button>
+          <Button size="sm" loading={busy} onClick={async () => {
+            for (const r of list) {
+              if (!r.pattern.trim() || !r.label.trim()) return void toast.error('Pola dan kecamatan tidak boleh kosong.')
+              try { new RegExp(r.pattern, 'i') } catch { return void toast.error(`Pola tidak valid: ${r.pattern}`) }
+            }
+            setBusy(true)
+            try { await saveSetting('report.location_rules', list.map((r) => ({ pattern: r.pattern.trim(), label: r.label.trim() }))); toast.success('Aturan kecamatan disimpan.'); qc.invalidateQueries({ queryKey: ['system_settings'] }) }
+            catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+          }}>Simpan aturan</Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 interface BackupFile { app: string; format_version: number; generated_at: string; counts: Record<string, number>; tables: Record<string, unknown[]> }
 
 function BackupCard() {
@@ -276,12 +370,18 @@ export default function SettingsPage() {
       <Tabs defaultValue="umum">
         <TabsList>
           <TabsTrigger value="umum">Umum</TabsTrigger>
+          <TabsTrigger value="laporan">Laporan & notifikasi</TabsTrigger>
           <TabsTrigger value="impor">Aturan impor</TabsTrigger>
           <TabsTrigger value="cadangan">Cadangan & pemulihan</TabsTrigger>
         </TabsList>
         <TabsContent value="umum" className="space-y-4">
           <IdentityCard initial={data.identity} />
           <DocumentsCard maxMb={data.maxFileSizeMb} ttl={data.signedUrlTtl} roles={data.downloadRoles} idle={data.idleTimeoutMinutes} chunkSize={data.importChunkSize} />
+        </TabsContent>
+        <TabsContent value="laporan" className="space-y-4">
+          <SignatoriesCard initial={data.signatories} />
+          <ThresholdsCard initial={data.expiryThresholds} />
+          <LocationRulesCard initial={data.locationRules} />
         </TabsContent>
         <TabsContent value="impor">
           <SectorRulesCard

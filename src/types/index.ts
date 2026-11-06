@@ -94,6 +94,8 @@ export interface PermitType {
   description: string | null
   is_active: boolean
   source_name: string | null
+  report_group: string | null
+  report_order: number
   created_at: string
   classification?: Pick<Classification, 'id' | 'code' | 'name'> | null
 }
@@ -128,6 +130,46 @@ export interface Permit extends Tracked {
   status: 'aktif' | 'dicabut' | 'kedaluwarsa' | 'dibekukan'
   signed_by: string | null
   notes: string | null
+  renewal_notified_at: string | null
+  renewal_note: string | null
+}
+
+export interface PermitExpiryRow {
+  permit_id: string
+  permit_number: string
+  issued_date: string | null
+  valid_until: string
+  permit_status: Permit['status']
+  days_left: number
+  renewal_notified_at: string | null
+  renewal_note: string | null
+  renewal_notified_by_name: string | null
+  application_id: string
+  application_number: string
+  application_type: string
+  permit_location: string | null
+  access_level: AccessLevel
+  applicant_id: string
+  applicant_name: string
+  applicant_phone: string | null
+  applicant_email: string | null
+  company_name: string | null
+  permit_type_id: string
+  permit_type_name: string
+  sector: string
+  renewal_application_id: string | null
+  renewal_application_number: string | null
+  is_renewed: boolean
+}
+
+export interface ExpirySummary {
+  thresholds: number[]
+  today: string
+  expired: number
+  buckets: { months: number; count: number }[]
+  not_notified: number
+  without_validity: number
+  nearest: { permit_id: string; application_id: string; permit_number: string; permit_type_name: string; applicant_name: string; valid_until: string; days_left: number; renewal_notified_at: string | null }[]
 }
 
 export interface ArchiveRow {
