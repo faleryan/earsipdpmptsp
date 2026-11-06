@@ -9,9 +9,10 @@ import { supabase } from '@/lib/supabase'
 import { errorMessage } from '@/lib/errors'
 import { chunk, cn } from '@/lib/utils'
 import { formatBytes, formatDateTime, formatNumber } from '@/lib/format'
-import { TARGET_FIELDS, autoMap, fieldLabel, requiredFields, type Mapping, type TargetField } from '@/lib/import/fields'
+import { autoMap, fieldLabel, type Mapping } from '@/lib/import/fields'
+import { DATASETS, detectDataset, type DatasetKey } from '@/lib/import/datasets'
 import { buildTable, guessHeaderRow, parseImportFile, type ParsedFile } from '@/lib/import/parse'
-import { buildCanonicalRows, sampleValues, type CanonRow, type ClientIssue, type DateOrder } from '@/lib/import/normalize'
+import { buildCanonicalRows, detectDateOrder, sampleValues, type CanonRow, type ClientIssue, type DateOrder } from '@/lib/import/normalize'
 import { useAuth } from '@/hooks/useAuth'
 import { useSettings } from '@/hooks/useSettings'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -67,6 +68,10 @@ export default function ImportPage() {
   // Langkah 2
   const [mapping, setMapping] = useState<Mapping>({})
   const [matchKey, setMatchKey] = useState<'source_id' | 'application_number'>('source_id')
+  const [dataset, setDataset] = useState<DatasetKey>('sicantik')
+  const [dateDetected, setDateDetected] = useState(false)
+  const def = DATASETS[dataset]
+  const keyField = def.keyField(matchKey)
   const [dateOrder, setDateOrder] = useState<DateOrder>('dmy')
   const [saveTplOpen, setSaveTplOpen] = useState(false)
   const [tplName, setTplName] = useState('')
@@ -131,8 +136,12 @@ export default function ImportPage() {
       const p = await parseImportFile(file)
       setParsed(p)
       setSheetIndex(0)
-      setHeaderIndex(guessHeaderRow(p.sheets[0]))
+      const hi = guessHeaderRow(p.sheets[0])
+      setHeaderIndex(hi)
       setMapping({})
+      const detected = detectDataset(buildTable(p.sheets[0], hi).headers)
+      setDataset(detected)
+      if (detected !== 'sicantik') toast.info(`Terdeteksi: ${DATASETS[detected].label}`)
     } catch (e) {
       toast.error(errorMessage(e))
     } finally {
@@ -144,25 +153,30 @@ export default function ImportPage() {
     if (!table) return
     if (!table.rows.length) return void toast.error('Tidak ada baris data di bawah baris judul yang dipilih.')
     if (table.rows.length > 50000) return void toast.error('Maksimal 50.000 baris per impor. Pecah file menjadi beberapa bagian.')
-    const auto = autoMap(table.headers)
+    const auto = autoMap(table.headers, def.fields)
     setMapping(auto)
-    setMatchKey(auto.source_id ? 'source_id' : 'application_number')
+    if (def.sicantik) setMatchKey(auto.source_id ? 'source_id' : 'application_number')
+    const order = detectDateOrder(table, auto, def.fields)
+    setDateDetected(Boolean(order))
+    if (order) setDateOrder(order)
     setStep(2)
   }
 
   /* ----------------------------- Langkah 2 ----------------------------- */
-  const missingRequired = requiredFields(matchKey).filter((f) => !mapping[f])
+  const requiredList = def.required(matchKey)
+  const missingRequired = requiredList.filter((f) => !mapping[f])
+  const datasetTemplates = (templates.data ?? []).filter((t) => (t.dataset ?? 'sicantik') === dataset)
   const duplicateSources = Object.entries(
     Object.values(mapping).reduce<Record<string, number>>((acc, h) => { if (h) acc[h] = (acc[h] ?? 0) + 1; return acc }, {}),
   ).filter(([, n]) => n > 1).map(([h]) => h)
 
   const applyTemplate = (name: string) => {
-    const tpl = templates.data?.find((t) => t.name === name)
+    const tpl = datasetTemplates.find((t) => t.name === name)
     if (!tpl || !table) return
     const next: Mapping = {}
     const missing: string[] = []
     Object.entries(tpl.mapping).forEach(([k, h]) => {
-      if (table.headers.includes(h)) next[k as TargetField] = h
+      if (table.headers.includes(h)) next[k] = h
       else missing.push(h)
     })
     setMapping(next)
@@ -175,8 +189,8 @@ export default function ImportPage() {
   const saveTemplate = async () => {
     const name = tplName.trim()
     if (name.length < 3) return void toast.error('Nama template minimal 3 karakter.')
-    const list = (templates.data ?? []).filter((t) => t.name !== name)
-    list.push({ name, mapping: mapping as Record<string, string>, match_key: matchKey, date_order: dateOrder, created_at: new Date().toISOString() })
+    const list = (templates.data ?? []).filter((t) => !(t.name === name && (t.dataset ?? 'sicantik') === dataset))
+    list.push({ name, dataset, mapping: mapping as Record<string, string>, match_key: matchKey, date_order: dateOrder, created_at: new Date().toISOString() })
     const { error } = await supabase.from('system_settings').update({ value: list }).eq('key', 'import.mapping_templates')
     if (error) return void toast.error(errorMessage(error))
     toast.success('Template pemetaan disimpan.')
@@ -188,7 +202,7 @@ export default function ImportPage() {
   /* ----------------------------- Langkah 3 ----------------------------- */
   const runPreview = async () => {
     if (!table) return
-    const built = buildCanonicalRows(table, mapping, { dateOrder, matchKey })
+    const built = buildCanonicalRows(table, mapping, { dateOrder, keyField, keyLabel: def.keyLabel(matchKey), fields: def.fields })
     setCanon(built)
     setResults(new Map())
     setOverwrite(new Set())
@@ -198,7 +212,9 @@ export default function ImportPage() {
     try {
       const parts = chunk(built.rows, PREVIEW_CHUNK)
       for (let i = 0; i < parts.length; i++) {
-        const { data, error } = await supabase.rpc('import_preview', { p_rows: parts[i], p_match_key: matchKey })
+        const { data, error } = def.sicantik
+          ? await supabase.rpc('import_preview', { p_rows: parts[i], p_match_key: matchKey })
+          : await supabase.rpc('oss_import_preview', { p_dataset: dataset, p_rows: parts[i] })
         if (error) throw error
         ;(data as PreviewResult[]).forEach((r) => map.set(r.row_number, r))
         setPreviewProgress(Math.round(((i + 1) / parts.length) * 100))
@@ -236,7 +252,9 @@ export default function ImportPage() {
         file_size: parsed.size,
         file_hash: parsed.hash,
         sheet_name: sheet?.name ?? null,
-        match_key: matchKey,
+        match_key: def.sicantik ? matchKey : 'source_id',
+        dataset,
+        source_system: def.sourceSystem,
         column_mapping: mapping,
         options: { update_changed: updateChanged, date_order: dateOrder, header_row: (sheet?.rows[headerIndex]?.rowNumber ?? 1), overwrite_confirmed: overwrite.size },
         total_rows: canon.rows.length + canon.issues.length,
@@ -250,8 +268,8 @@ export default function ImportPage() {
       // galat sisi klien (duplikat dalam file)
       for (const part of chunk(canon.issues, 500)) {
         const { error } = await supabase.from('import_errors').insert(part.map((i) => ({
-          batch_id: batchId, row_number: i.row_number, source_id: (i.row.source_id as string) ?? null,
-          application_number: (i.row.application_number as string) ?? null, severity: 'error', error_type: i.type,
+          batch_id: batchId, row_number: i.row_number, source_id: (i.row[keyField] as string) ?? null,
+          application_number: ((i.row.application_number ?? i.row.nib) as string) ?? null, severity: 'error', error_type: i.type,
           field: i.field ?? null, message: i.message, raw_data: i.row,
         })))
         if (error) throw error
@@ -263,9 +281,13 @@ export default function ImportPage() {
       for (let i = 0; i < parts.length; i++) {
         const rowsInPart = parts[i]
         const ow = rowsInPart.map((r) => r.row_number).filter((n) => overwrite.has(n))
-        const { error } = await supabase.rpc('import_commit_rows', {
-          p_batch_id: batchId, p_rows: rowsInPart, p_options: { update_changed: updateChanged, overwrite_rows: ow },
-        })
+        const { error } = def.sicantik
+          ? await supabase.rpc('import_commit_rows', {
+            p_batch_id: batchId, p_rows: rowsInPart, p_options: { update_changed: updateChanged, overwrite_rows: ow },
+          })
+          : await supabase.rpc('oss_import_commit', {
+            p_batch_id: batchId, p_dataset: dataset, p_rows: rowsInPart, p_options: { update_changed: updateChanged },
+          })
         if (error) throw error
         setCommitProgress(Math.round(((i + 1) / parts.length) * 100))
       }
@@ -328,6 +350,13 @@ export default function ImportPage() {
                   </p>
                 )}
                 <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <label className="mb-1.5 block text-sm font-medium" htmlFor="imp-dataset">Jenis data</label>
+                    <NativeSelect id="imp-dataset" value={dataset} onChange={(e) => setDataset(e.target.value as DatasetKey)}>
+                      {Object.values(DATASETS).map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
+                    </NativeSelect>
+                    <p className="mt-1.5 text-xs text-muted-foreground">{def.description} Ditentukan otomatis dari judul kolom; ubah bila keliru.</p>
+                  </div>
                   {parsed.sheets.length > 1 && (
                     <div>
                       <label className="mb-1.5 block text-sm font-medium" htmlFor="imp-sheet">Sheet</label>
@@ -371,6 +400,13 @@ export default function ImportPage() {
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="grid gap-4 rounded-lg border bg-muted/30 p-4 md:grid-cols-3">
+              {!def.sicantik ? (
+                <div>
+                  <p className="mb-1.5 text-sm font-medium">Kunci pencocokan data</p>
+                  <p className="rounded-md border bg-card px-3 py-2 text-sm">{def.keyLabel(matchKey)}</p>
+                  <p className="mt-1.5 text-xs text-muted-foreground">{def.label}. Data OSS bersifat referensi: baris yang berubah di OSS dapat diperbarui, tidak diedit manual di E-Arsip.</p>
+                </div>
+              ) : (
               <div>
                 <label className="mb-1.5 block text-sm font-medium" htmlFor="imp-key">Kunci pencocokan data</label>
                 <NativeSelect id="imp-key" value={matchKey} onChange={(e) => setMatchKey(e.target.value as typeof matchKey)}>
@@ -383,32 +419,35 @@ export default function ImportPage() {
                     : 'Hati-hati: satu nomor permohonan bisa memuat beberapa izin di SiCANTIK.'}
                 </p>
               </div>
+              )}
               <div>
                 <label className="mb-1.5 block text-sm font-medium" htmlFor="imp-date">Format tanggal teks</label>
                 <NativeSelect id="imp-date" value={dateOrder} onChange={(e) => setDateOrder(e.target.value as DateOrder)}>
                   <option value="dmy">Hari/Bulan/Tahun (31/12/2026)</option>
                   <option value="mdy">Bulan/Hari/Tahun (12/31/2026)</option>
                 </NativeSelect>
-                <p className="mt-1.5 text-xs text-muted-foreground">Sel tanggal Excel dan format 2026-12-31 dibaca otomatis.</p>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {dateDetected ? 'Terdeteksi otomatis dari isi file. ' : ''}Sel tanggal Excel, 2026-12-31, dan “24 April 2026” dibaca otomatis.
+                </p>
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium" htmlFor="imp-tpl">Template pemetaan</label>
                 <div className="flex gap-2">
                   <NativeSelect id="imp-tpl" defaultValue="" onChange={(e) => e.target.value && applyTemplate(e.target.value)}>
-                    <option value="">{templates.data?.length ? 'Pilih template…' : 'Belum ada template'}</option>
-                    {templates.data?.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+                    <option value="">{datasetTemplates.length ? 'Pilih template…' : 'Belum ada template'}</option>
+                    {datasetTemplates.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
                   </NativeSelect>
                   <Button variant="outline" size="icon" aria-label="Simpan sebagai template" onClick={() => setSaveTplOpen(true)}><Save /></Button>
                 </div>
               </div>
             </div>
 
-            {(['Permohonan', 'Pemohon', 'Izin terbit', 'Badan usaha'] as const).map((group) => (
+            {Array.from(new Set(def.fields.map((f) => f.group))).map((group) => (
               <div key={group}>
                 <p className="mb-2 text-sm font-semibold">{group}</p>
                 <div className="divide-y rounded-lg border">
-                  {TARGET_FIELDS.filter((f) => f.group === group).map((f) => {
-                    const req = requiredFields(matchKey).includes(f.key)
+                  {def.fields.filter((f) => f.group === group).map((f) => {
+                    const req = requiredList.includes(f.key)
                     const src = mapping[f.key]
                     const samples = src ? sampleValues(table, src) : []
                     return (
@@ -461,7 +500,7 @@ export default function ImportPage() {
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-2 md:grid-cols-6" role="tablist">
-                  {(['new', 'changed', 'conflict', 'unchanged', 'error'] as RowStatus[]).map((s) => (
+                  {((def.sicantik ? ['new', 'changed', 'conflict', 'unchanged', 'error'] : ['new', 'changed', 'unchanged', 'error']) as RowStatus[]).map((s) => (
                     <button key={s} role="tab" aria-selected={tab === s} onClick={() => { setTab(s); setPage(1) }}
                       className={cn('rounded-lg border px-3 py-2.5 text-left transition-colors', tab === s ? 'border-primary bg-accent' : 'hover:border-primary/40')}>
                       <p className={cn('text-xs font-medium', STATUS_META[s].tone)}>{STATUS_META[s].label}</p>
@@ -493,6 +532,7 @@ export default function ImportPage() {
                     </Table>
                   ) : (
                     <PreviewTable
+                      display={def.display}
                       rows={tabRows.slice((page - 1) * 50, page * 50)}
                       canonByRow={canonByRow}
                       status={tab}
@@ -534,7 +574,7 @@ export default function ImportPage() {
             </div>
 
             <fieldset className="rounded-lg border p-4">
-              <legend className="px-1 text-sm font-semibold">Data yang berubah di SiCANTIK ({formatNumber(counts.changed ?? 0)} baris)</legend>
+              <legend className="px-1 text-sm font-semibold">Data yang berubah di {def.short.split(' ')[0]} ({formatNumber(counts.changed ?? 0)} baris)</legend>
               <div className="mt-1 space-y-2 text-sm">
                 <label className="flex items-start gap-2"><input type="radio" name="changed" className="mt-1" checked={updateChanged} onChange={() => setUpdateChanged(true)} />
                   <span><span className="font-medium">Perbarui</span> — terapkan perubahan dari SiCANTIK. Metadata arsip (klasifikasi, lokasi fisik, dokumen) tidak tersentuh.</span></label>
@@ -543,7 +583,7 @@ export default function ImportPage() {
               </div>
             </fieldset>
 
-            <fieldset className="rounded-lg border p-4">
+            {def.sicantik && <fieldset className="rounded-lg border p-4">
               <legend className="px-1 text-sm font-semibold">Konflik dengan data yang diubah manual ({formatNumber(counts.conflict ?? 0)} baris)</legend>
               {counts.conflict ? (
                 <div className="space-y-3 text-sm">
@@ -555,7 +595,7 @@ export default function ImportPage() {
                   </div>
                 </div>
               ) : <p className="text-sm text-muted-foreground">Tidak ada konflik.</p>}
-            </fieldset>
+            </fieldset>}
 
             <div>
               <label className="mb-1.5 block text-sm font-medium" htmlFor="imp-notes">Catatan impor (opsional)</label>
@@ -604,7 +644,7 @@ export default function ImportPage() {
                     </Button>
                   )}
                   <Button variant="outline" asChild><Link to={`/impor/${batch.id}`}>Detail batch</Link></Button>
-                  <Button variant="outline" asChild><Link to={`/pencarian?importBatchId=${batch.id}`}>Lihat arsip hasil impor</Link></Button>
+                  <Button variant="outline" asChild><Link to={def.resultLink(batch.id).to}>{def.resultLink(batch.id).label}</Link></Button>
                   <Button onClick={resetAll}>Impor file lain</Button>
                 </div>
               </>
@@ -674,8 +714,9 @@ function Summary({ label, value, tone }: { label: string; value: number; tone: s
 }
 
 function PreviewTable({
-  rows, canonByRow, status, overwrite, onToggle,
+  rows, canonByRow, status, overwrite, onToggle, display,
 }: {
+  display: (r: CanonRow) => { title: string; subtitle?: string; meta?: string }
   rows: PreviewResult[]
   canonByRow: Map<number, CanonRow>
   status: RowStatus
@@ -689,14 +730,15 @@ function PreviewTable({
         <TableRow>
           {status === 'conflict' && <TableHead className="w-10"><span className="sr-only">Timpa</span></TableHead>}
           <TableHead>Baris</TableHead>
-          <TableHead>No. permohonan</TableHead>
-          <TableHead>Pemohon / jenis izin</TableHead>
+          <TableHead>Data</TableHead>
+          <TableHead>Keterangan data</TableHead>
           <TableHead>{status === 'error' ? 'Kesalahan' : status === 'changed' || status === 'conflict' ? 'Perubahan' : 'Keterangan'}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {rows.map((r) => {
           const c = canonByRow.get(r.row_number)
+          const d = c ? display(c) : null
           return (
             <TableRow key={r.row_number}>
               {status === 'conflict' && (
@@ -706,12 +748,11 @@ function PreviewTable({
               )}
               <TableCell className="tabular">{r.row_number}</TableCell>
               <TableCell className="min-w-48">
-                {r.application_id ? <Link className="text-primary hover:underline" to={`/permohonan/${r.application_id}`} target="_blank">{String(c?.application_number ?? '')}</Link> : String(c?.application_number ?? '—')}
-                {c?.source_id && <p className="text-xs text-muted-foreground tabular">ID {String(c.source_id)}</p>}
+                {r.application_id ? <Link className="text-primary hover:underline" to={`/permohonan/${r.application_id}`} target="_blank">{d?.title}</Link> : (d?.title || '—')}
+                {d?.meta && <p className="line-clamp-1 text-xs text-muted-foreground tabular">{d.meta}</p>}
               </TableCell>
               <TableCell className="min-w-56">
-                <p className="text-sm">{String(c?.applicant_name ?? '—')}</p>
-                <p className="line-clamp-1 text-xs text-muted-foreground">{String(c?.permit_type_name ?? '')}</p>
+                <p className="text-sm">{d?.subtitle || '—'}</p>
               </TableCell>
               <TableCell className="min-w-72 text-xs">
                 {status === 'error' && r.errors.map((e, i) => <p key={i} className="text-destructive">{fieldLabel(e.field)}: {e.message}</p>)}

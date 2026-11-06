@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import { exportRawExcel } from '@/lib/export'
 import { fieldLabel } from '@/lib/import/fields'
+import '@/lib/import/datasets'
 import { IMPORT_ERROR_TYPES } from '@/lib/constants'
 import type { ImportError } from '@/types'
 
@@ -20,6 +21,7 @@ export interface PreviewResult {
 
 export interface MappingTemplate {
   name: string
+  dataset?: 'sicantik' | 'oss_nib' | 'oss_projects' | 'oss_permits'
   mapping: Record<string, string>
   match_key: 'source_id' | 'application_number'
   date_order: 'dmy' | 'mdy'

@@ -46,3 +46,15 @@ export function shortPermitName(s: string, n = 40) {
   const t = s.replace(/\s*Kab\.?\s*Belu\s*$/i, '').replace(/^Surat Izin Praktik\s*/i, 'SIP ')
   return t.length > n ? `${t.slice(0, n - 1)}…` : t
 }
+
+const rupiah = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 })
+export const formatRupiah = (n: number | null | undefined) => (n === null || n === undefined ? '—' : rupiah.format(Number(n)))
+
+/** Ringkas: Rp 1,2 M / Rp 850 jt */
+export function formatRupiahShort(n: number | null | undefined) {
+  const v = Number(n ?? 0)
+  if (v >= 1e12) return `Rp ${(v / 1e12).toLocaleString('id-ID', { maximumFractionDigits: 1 })} T`
+  if (v >= 1e9) return `Rp ${(v / 1e9).toLocaleString('id-ID', { maximumFractionDigits: 1 })} M`
+  if (v >= 1e6) return `Rp ${(v / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 0 })} jt`
+  return rupiah.format(v)
+}

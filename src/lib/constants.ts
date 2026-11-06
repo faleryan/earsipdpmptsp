@@ -9,7 +9,18 @@ export const DOCUMENT_CATEGORIES: { value: DocumentCategory; label: string; shor
   { value: 'surat_keputusan', label: 'Surat keputusan / izin', short: 'SK / Izin' },
   { value: 'dokumen_pendukung', label: 'Dokumen pendukung', short: 'Pendukung' },
 ]
-export const categoryLabel = (c: string) => DOCUMENT_CATEGORIES.find((x) => x.value === c)?.label ?? c
+export const OSS_DOC_CATEGORIES: { value: string; label: string }[] = [
+  { value: 'nib', label: 'Dokumen NIB' },
+  { value: 'sertifikat_standar', label: 'Sertifikat Standar' },
+  { value: 'pkkpr', label: 'PKKPR' },
+  { value: 'sppl', label: 'SPPL' },
+  { value: 'pernyataan_mandiri', label: 'Pernyataan Mandiri' },
+  { value: 'persetujuan_lingkungan', label: 'Persetujuan lingkungan (UKL-UPL/AMDAL)' },
+  { value: 'izin', label: 'Izin' },
+  { value: 'dokumen_pendukung', label: 'Dokumen pendukung' },
+]
+export const categoryLabel = (c: string) =>
+  DOCUMENT_CATEGORIES.find((x) => x.value === c)?.label ?? OSS_DOC_CATEGORIES.find((x) => x.value === c)?.label ?? c
 export const categoryShort = (c: string) => DOCUMENT_CATEGORIES.find((x) => x.value === c)?.short ?? c
 
 export const ROLE_LABELS: Record<RoleCode, string> = {
@@ -108,4 +119,6 @@ export const ENTITY_LABELS: Record<string, string> = {
   system_settings: 'Pengaturan',
   import_batches: 'Impor',
   system: 'Sistem',
+  oss: 'Data OSS',
+  oss_documents: 'Dokumen OSS',
 }

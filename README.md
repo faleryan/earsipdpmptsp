@@ -29,7 +29,7 @@ Dokumentasi lanjutan:
 │   ├── lib/                 supabase, api & filter, ekspor, dokumen, import/ (parser + normalisasi)
 │   └── hooks/               auth, pengaturan, daftar berhalaman, filter di URL
 ├── supabase/
-│   ├── migrations/          001 skema · 002 keamanan/RLS/audit · 003 mesin impor · 004 laporan/backup · 005 storage · 006 rekap & masa berlaku
+│   ├── migrations/          001 skema · 002 keamanan/RLS/audit · 003 mesin impor · 004 laporan/backup · 005 storage · 006 rekap & masa berlaku · 007 data OSS · 008 dokumen OSS
 │   ├── seed.sql             Peran, klasifikasi contoh, pengaturan sistem
 │   ├── functions/admin-users  Edge Function manajemen akun (Super Admin)
 │   └── tests/               Uji integrasi database (PostgreSQL + stub Supabase)
@@ -52,8 +52,8 @@ Dokumentasi lanjutan:
    psql "postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres" -f supabase/seed.sql
    ```
 
-   Tanpa CLI: buka **SQL Editor**, jalankan berurutan keenam file di `supabase/migrations/`, lalu `supabase/seed.sql`.
-   Sudah memasang versi sebelumnya? Cukup jalankan `20261106000006_recap_and_expiry.sql`.
+   Tanpa CLI: buka **SQL Editor**, jalankan berurutan kedelapan file di `supabase/migrations/`, lalu `supabase/seed.sql`.
+   Sudah memasang versi sebelumnya? Jalankan file migration yang belum ada (006 rekap & masa berlaku, 007 data OSS, 008 dokumen OSS).
 3. **Authentication → Providers → Email**: matikan *Allow new users to sign up* (akun dibuat Super Admin).
    Atur *Site URL* ke alamat Vercel Anda dan tambahkan `https://<domain>/atur-sandi` pada *Redirect URLs*.
 4. **Super Admin pertama**: Authentication → Users → *Add user* (centang *Auto Confirm*).
@@ -121,6 +121,43 @@ kolom per hari dengan subtotal mingguan **Mg I–V** (minggu Senin–Minggu), pe
   diatur di *Pengaturan → Laporan & notifikasi*. Juga tersedia ekspor Excel.
 - Kelompok laporan (mis. "PERIZINAN BERUSAHA BERBASIS RISIKO") dan urutan baris diatur per jenis izin.
 
+### Data OSS RBA
+
+Ekspor OSS dapat diimpor lewat menu **Impor data** yang sama — jenis file dikenali otomatis dari judul kolom:
+
+| Ekspor OSS | Kunci | Isi di E-Arsip |
+| --- | --- | --- |
+| List izin | ID Permohonan Izin | Persyaratan dasar (PKKPR, SPPL, Pernyataan Mandiri) & sertifikat standar, risiko, status |
+| DP.NIB | NIB | Profil pelaku usaha: jenis, skala, alamat, kelurahan, kecamatan |
+| DP.Proyek | ID Proyek | Proyek: KBLI, risiko, skala, rencana investasi, tenaga kerja, luas tanah |
+
+- Ketiganya tertaut melalui NIB dan ID Proyek, sehingga urutan impor bebas dan ekspor parsial tetap bisa dimuat.
+- Format tanggal yang berbeda per file (DD/MM/YY, MM/DD/YYYY, "24 April 2026") dideteksi otomatis; angka format
+  Indonesia (`1.035,34`), tag HTML (`<br>`), dan penulisan kecamatan (`TasifetoTimur`) dinormalisasi.
+- Impor ulang hanya memproses baris yang berubah (mis. status izin); semua batch tercatat di Riwayat impor.
+- Menu **Data OSS RBA**: tab Izin / Proyek / Pelaku usaha dengan filter kecamatan, risiko, dokumen, status, tanggal;
+  profil per NIB; ekspor Excel. Dashboard menampilkan ringkasan investasi & tenaga kerja.
+- **Rekap izin** memiliki pilihan sumber *SiCANTIK*, *OSS*, atau *Gabungan*: bagian A "Perizinan Berusaha Berbasis
+  Risiko" (NIB, Sertifikat Standar MR/MT, Izin) dan B "Persyaratan Dasar", diikuti izin SiCANTIK — siap PDF bertanda tangan.
+  Izin berstatus "Menunggu Verifikasi" tidak dihitung sebagai terbit.
+
+#### Dokumen PDF OSS (file NIB, PKKPR, SPPL, Sertifikat Standar)
+
+- Di profil NIB (**Data OSS RBA → klik pelaku usaha**) ada panel **Dokumen OSS**: unggah *file NIB*, dokumen lain
+  milik pelaku usaha, dan PDF per izin OSS (tombol **Unggah** pada setiap izin; kategori ditebak dari nama dokumen,
+  mis. SPPL → kategori SPPL). Pratinjau, unduh (sesuai hak peran), versi baru dengan alasan perubahan, riwayat versi,
+  hapus/pulihkan (Admin) dan hapus permanen (Super Admin) — sama seperti dokumen arsip SiCANTIK.
+- **Unggah file NIB massal** (tombol di halaman Data OSS RBA): pilih hingga 200 PDF sekaligus. Setiap file dicocokkan
+  ke pelaku usaha melalui NIB 13 digit di **nama file** (`0220001234567.pdf`, `NIB_0220001234567_CV Maju.pdf`), atau
+  bila tidak ada, dari **teks di halaman pertama PDF** (PDF unduhan OSS memuat NIB). File yang tidak cocok dapat diisi
+  NIB-nya secara manual. Pilihan bila file NIB sudah ada: *lewati* atau *simpan sebagai versi baru*.
+  PDF hasil pindai (gambar tanpa teks) tidak dapat dibaca isinya — beri nama file dengan NIB.
+- Tab Pelaku usaha punya kolom & filter **File NIB** (ada/belum) dan kartu ringkasan "File NIB tersimpan X / Y";
+  tab Izin punya kolom & filter jumlah PDF. Ekspor Excel pelaku usaha menyertakan status file NIB.
+- File disimpan di bucket privat yang sama (`oss/{NIB}/{uuid}.pdf`), hanya dapat dibuka lewat signed URL berumur pendek;
+  setiap unggah, pratinjau, unduh, dan perubahan tercatat di audit trail. Dokumen hanya dapat diunggah untuk NIB yang
+  sudah ada di data OSS hasil impor.
+
 ### Notifikasi masa berlaku izin
 
 - Isi **Masa berlaku (tahun)** pada jenis izin → tanggal berakhir izin dihitung dari tanggal penetapan
@@ -134,11 +171,14 @@ kolom per hari dengan subtotal mingguan **Mg I–V** (minggu Senin–Minggu), pe
 
 ## 6. Pengujian yang sudah dijalankan
 
-- `supabase/tests/db_test.py` — 96 uji integrasi pada PostgreSQL 16 dengan data ekspor SiCANTIK asli
+- `supabase/tests/db_test.py` — 126 uji integrasi pada PostgreSQL 16 dengan data ekspor SiCANTIK asli
   (857 baris): impor, impor ulang, deteksi perubahan, perlindungan edit manual, validasi, duplikat,
   RLS per peran, versi dokumen, kebijakan storage, audit trail append-only, dashboard, laporan,
   cadangan & pemulihan, rekap harian, perhitungan masa berlaku, ambang notifikasi 6/3/1 bulan,
-  pengecualian izin yang sudah diperpanjang.
+  pengecualian izin yang sudah diperpanjang, serta impor ketiga ekspor OSS contoh (624 baris) termasuk
+  impor ulang, deteksi perubahan, relasi NIB–proyek–izin, rekap OSS, serta dokumen OSS (versi, kunci path per NIB,
+  izin harus milik NIB yang sama, RLS & kebijakan storage). File `oss_*.json` dibuat dengan
+  `supabase/tests/oss_to_rows.py` dan diletakkan di folder yang sama dengan `rows.json`.
 
   ```bash
   createdb earsip_test
@@ -149,11 +189,13 @@ kolom per hari dengan subtotal mingguan **Mg I–V** (minggu Senin–Minggu), pe
   python3 supabase/tests/db_test.py /tmp/rows.json "dbname=earsip_test"
   ```
 
-- `npm test` — matriks rekap (kolom hari/Mg I–V/bulan, subtotal, kecamatan) serta parser & normalisasi impor (tanggal Excel, format tanggal Indonesia, NIK panjang, CSV `;`,
+- `npm test` — deteksi & pemetaan ekspor OSS (dengan `OSS_DIR=<folder ekspor>`), matriks rekap (kolom hari/Mg I–V/bulan, subtotal, kecamatan) serta parser & normalisasi impor (tanggal Excel, format tanggal Indonesia, NIK panjang, CSV `;`,
   duplikat). Dengan `IMPORT_SAMPLE=/path/ekspor.xlsx npm test` hasilnya dicocokkan dengan file asli.
 - Uji end-to-end antarmuka (Playwright) terhadap GoTrue + PostgREST asli: login, impor 857 baris lewat
   wizard, unggah PDF + validasi file palsu, pratinjau, unduh, versi baru, edit manual, impor ulang,
-  laporan Excel/PDF, pembatasan per peran, cadangan & uji pemulihan.
+  laporan Excel/PDF, pembatasan per peran, cadangan & uji pemulihan; impor tiga ekspor OSS, rekap gabungan;
+  unggah file NIB & SPPL di profil NIB, versi baru, serta unggah massal 5 PDF (pencocokan dari nama file dan dari isi PDF,
+  koreksi manual, file NIB yang sudah ada dilewati).
 
 ## 7. Catatan penyesuaian
 

@@ -21,6 +21,8 @@ export interface PermitTypeLite {
   report_group: string | null
   report_order: number
   is_active: boolean
+  /** urutan kelompok (lebih kecil tampil lebih dulu); bawaan 50 */
+  group_order?: number
 }
 
 export interface RecapColumn {
@@ -181,11 +183,14 @@ export function buildMatrix({ counts, columns, dimension, permitTypes, locationR
     const types = permitTypes.filter((t) => used.has(t.id) || (showZeroRows && t.is_active))
     const sections = new Map<string, PermitTypeLite[]>()
     types.forEach((t) => {
-      const title = t.report_group?.trim() ? `${t.report_group.trim()} — ${t.sector}` : t.sector
+      const g = t.report_group?.trim()
+      const title = g ? (t.sector ? `${g} — ${t.sector}` : g) : t.sector
       sections.set(title, [...(sections.get(title) ?? []), t])
     })
     const ordered = Array.from(sections.entries()).sort(([a, ta], [b, tb]) => {
-      const ga = ta[0].report_group ?? '￿', gb = tb[0].report_group ?? '￿'
+      const oa = ta[0].group_order ?? 50, ob = tb[0].group_order ?? 50
+      if (oa !== ob) return oa - ob
+      const ga = ta[0].report_group ?? '\uffff', gb = tb[0].report_group ?? '\uffff'
       return ga.localeCompare(gb, 'id') || a.localeCompare(b, 'id')
     })
     ordered.forEach(([title, ts], i) => {

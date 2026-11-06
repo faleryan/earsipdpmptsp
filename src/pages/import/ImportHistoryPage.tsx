@@ -11,6 +11,8 @@ import { EmptyState } from '@/components/common/States'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import type { ImportBatch } from '@/types'
+import { Badge } from '@/components/ui/badge'
+import { DATASETS } from '@/lib/import/datasets'
 
 export default function ImportHistoryPage() {
   const { can } = useAuth()
@@ -24,6 +26,7 @@ export default function ImportHistoryPage() {
   const columns: Column<ImportBatch>[] = [
     { key: 'created_at', header: 'Waktu', sortable: true, cell: (r) => <span className="whitespace-nowrap tabular">{formatDateTime(r.created_at)}</span> },
     { key: 'file_name', header: 'File', sortable: true, cell: (r) => <div className="min-w-52"><Link to={`/impor/${r.id}`} className="font-medium hover:text-primary hover:underline">{r.file_name}</Link><p className="text-xs text-muted-foreground">{r.importer?.full_name || r.importer?.email || '—'}</p></div> },
+    { key: 'dataset', header: 'Jenis data', sortable: true, cell: (r) => <Badge variant={r.dataset === 'sicantik' ? 'default' : 'navy'}>{DATASETS[r.dataset ?? 'sicantik']?.short ?? r.dataset}</Badge> },
     { key: 'status', header: 'Status', cell: (r) => <ImportStatusBadge status={r.status} /> },
     { key: 'total_rows', header: 'Baris', sortable: true, cell: (r) => num(r.total_rows) },
     { key: 'inserted_count', header: 'Baru', cell: (r) => num(r.inserted_count, 'text-primary font-semibold') },
@@ -36,7 +39,7 @@ export default function ImportHistoryPage() {
     <div>
       <PageHeader
         title="Riwayat impor"
-        description="Setiap proses impor tercatat lengkap: siapa, kapan, file apa, pemetaan kolom, dan hasil per baris."
+        description="Setiap proses impor SiCANTIK dan OSS tercatat lengkap: siapa, kapan, file apa, pemetaan kolom, dan hasil per baris."
         actions={can('import.run') && <Button asChild><Link to="/impor"><FileUp /> Impor baru</Link></Button>}
       />
       <Card>

@@ -19,7 +19,7 @@ Arsip, Pimpinan, dan pengunggah), **rahasia** (Super Admin, Admin Arsip, Pimpina
 
 ## 2. Penegakan
 
-- **RLS aktif di 13 tabel.** Peran `anon` dicabut seluruh haknya. Akun nonaktif tidak melihat data apa pun.
+- **RLS aktif di 17 tabel** (termasuk 4 tabel OSS). Peran `anon` dicabut seluruh haknya. Akun nonaktif tidak melihat data apa pun.
 - Fungsi helper `current_role_code()`, `has_any_role()`, `can_access_level()` bersifat
   `SECURITY DEFINER` dengan `search_path` terkunci.
 - Peran, status aktif, dan email profil hanya dapat diubah Super Admin (trigger). Super Admin aktif
@@ -29,7 +29,9 @@ Arsip, Pimpinan, dan pengunggah), **rahasia** (Super Admin, Admin Arsip, Pimpina
   JWT pemanggil dan peran Super Admin sebelum memakai service role. Kata sandi minimal 10 karakter
   dengan huruf besar, huruf kecil, dan angka.
 - Storage: bucket privat; baca file hanya bila pengguna berhak melihat baris dokumennya; unggah
-  hanya ke path permohonan yang ada; tidak ada izin UPDATE (file immutable).
+  hanya ke path permohonan yang ada; tidak ada izin UPDATE (file immutable). Dokumen OSS memakai
+  path `oss/{NIB}/{uuid}.pdf`: unggah hanya untuk NIB yang ada di data OSS, oleh peran yang boleh unggah,
+  dan path harus cocok dengan NIB pada baris metadata.
 - Audit trail append-only: tidak ada policy INSERT/UPDATE/DELETE untuk klien — bahkan Super Admin
   tidak dapat menghapus log dari aplikasi. Perubahan data dicatat trigger (kolom lama → baru);
   login, pratinjau, unduhan, ekspor, impor, cadangan, dan manajemen akun dicatat lewat fungsi.
@@ -52,7 +54,7 @@ Lakukan **ketiganya**:
 1. **Cadangan bawaan Supabase** — paket Pro ke atas: backup harian otomatis; aktifkan
    *Point-in-Time Recovery* bila tersedia (Database → Backups).
 2. **Cadangan data dari aplikasi** — *Pengaturan & cadangan → Cadangan & pemulihan → Unduh
-   cadangan data (JSON)*. Berisi 13 tabel. Simpan di media terpisah (mis. server arsip dinas).
+   cadangan data (JSON)*. Berisi 17 tabel (termasuk data & metadata dokumen OSS). Simpan di media terpisah (mis. server arsip dinas).
    *Pemulihan* menguji file terlebih dahulu (dry run), lalu meng-upsert per ID dalam satu
    transaksi; data yang dibuat setelah cadangan tidak dihapus. Profil yang akunnya tidak ada
    dilewati; referensi pengguna yang hilang dikosongkan.

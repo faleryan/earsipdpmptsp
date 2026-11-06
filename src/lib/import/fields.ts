@@ -1,13 +1,16 @@
-export type TargetField =
+export type SicantikField =
   | 'source_id' | 'application_number' | 'permit_type_name' | 'application_type' | 'application_date'
   | 'applicant_name' | 'applicant_nik' | 'applicant_phone' | 'applicant_email' | 'applicant_address'
   | 'location' | 'permit_location' | 'permit_number' | 'issued_date' | 'valid_until'
   | 'company_name' | 'company_form' | 'company_nib' | 'company_npwp' | 'company_address' | 'sector'
 
+/** Kunci kolom target. Dataset OSS memakai kunci lain (lihat datasets.ts). */
+export type TargetField = SicantikField | (string & {})
+
 export interface FieldDef {
   key: TargetField
   label: string
-  group: 'Permohonan' | 'Pemohon' | 'Izin terbit' | 'Badan usaha'
+  group: string
   required?: boolean
   date?: boolean
   hint?: string
@@ -45,18 +48,24 @@ export const TARGET_FIELDS: FieldDef[] = [
   { key: 'company_address', label: 'Alamat badan usaha', group: 'Badan usaha', synonyms: ['alamatusaha', 'alamatperusahaan', 'alamatbadanusaha'] },
 ]
 
-export const fieldLabel = (k: string) => TARGET_FIELDS.find((f) => f.key === k)?.label ?? k
+const EXTRA_LABELS = new Map<string, string>()
+/** Daftarkan label kolom dataset lain agar laporan kesalahan memakai nama yang dikenal. */
+export function registerFieldLabels(fields: FieldDef[]) {
+  fields.forEach((f) => { if (!EXTRA_LABELS.has(f.key)) EXTRA_LABELS.set(f.key, f.label) })
+}
+export const fieldLabel = (k: string) => TARGET_FIELDS.find((f) => f.key === k)?.label ?? EXTRA_LABELS.get(k) ?? k
 
-export type Mapping = Partial<Record<TargetField, string>>
+export type Mapping = Partial<Record<string, string>>
 
-const normalizeHeader = (h: string) => h.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]/g, '')
+/** Normalisasi judul kolom: huruf kecil, tanpa spasi/tanda baca, tanpa awalan "Day of" (ekspor Tableau OSS). */
+export const normalizeHeader = (h: string) => h.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]/g, '').replace(/^dayof/, '')
 
 /** Pemetaan otomatis: hanya kecocokan persis (setelah normalisasi) agar tidak salah petakan. */
-export function autoMap(headers: string[]): Mapping {
+export function autoMap(headers: string[], fields: FieldDef[] = TARGET_FIELDS): Mapping {
   const mapping: Mapping = {}
   const used = new Set<string>()
   const norm = headers.map((h) => ({ h, n: normalizeHeader(h) }))
-  for (const f of TARGET_FIELDS) {
+  for (const f of fields) {
     const hit = norm.find((x) => !used.has(x.h) && f.synonyms.includes(x.n))
     if (hit) {
       mapping[f.key] = hit.h
@@ -66,7 +75,7 @@ export function autoMap(headers: string[]): Mapping {
   return mapping
 }
 
-export function requiredFields(matchKey: 'source_id' | 'application_number'): TargetField[] {
+export function requiredFields(matchKey: 'source_id' | 'application_number'): string[] {
   const req = TARGET_FIELDS.filter((f) => f.required).map((f) => f.key)
   return matchKey === 'source_id' ? ['source_id', ...req] : req
 }

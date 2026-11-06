@@ -7,7 +7,7 @@ import {
 import { AlertCircle, FileBadge2, FileStack, FileUp, Hourglass, ClipboardList } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { getArchiveYears } from '@/lib/api'
-import { formatBytes, formatDate, formatDateTime, formatNumber, formatRelative, shortPermitName } from '@/lib/format'
+import { formatBytes, formatDate, formatDateTime, formatNumber, formatRelative, formatRupiahShort, shortPermitName } from '@/lib/format'
 import { ACTIVITY_LABELS, ENTITY_LABELS, categoryLabel } from '@/lib/constants'
 import { useAuth } from '@/hooks/useAuth'
 import { useExpirySummary, daysLeftLabel } from '@/hooks/useExpiry'
@@ -18,7 +18,7 @@ import { ImportStatusBadge } from '@/components/common/Badges'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { NativeSelect } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import type { DashboardStats } from '@/types'
+import type { DashboardStats, OssSummary } from '@/types'
 
 const C = { blue: '#1f6fd1', navy: '#0b2240', sky: '#8db8ec', grid: '#e4e9f0', axis: '#5a6b82' }
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
@@ -41,6 +41,14 @@ export default function DashboardPage() {
 
   const s = stats.data
   const expiry = useExpirySummary()
+  const oss = useQuery({
+    queryKey: ['oss', 'summary', year],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('get_oss_summary', { p_year: year ? Number(year) : null })
+      if (error) throw error
+      return data as OssSummary
+    },
+  })
   const greeting = (() => {
     const h = new Date().getHours()
     return h < 11 ? 'Selamat pagi' : h < 15 ? 'Selamat siang' : h < 18 ? 'Selamat sore' : 'Selamat malam'
@@ -173,6 +181,37 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Perizinan berusaha (OSS)</CardTitle>
+                  <CardDescription>Dari ekspor OSS RBA{year ? ` tahun ${year}` : ''}.</CardDescription>
+                </div>
+                <Button asChild variant="link" size="sm"><Link to="/oss">Data OSS</Link></Button>
+              </CardHeader>
+              <CardContent>
+                {oss.data && (oss.data.businesses || oss.data.permits) ? (
+                  <>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      {([['Pelaku usaha', oss.data.businesses, '/oss?tab=pelaku'], ['Proyek', oss.data.projects, '/oss?tab=proyek'], ['Izin', oss.data.permits, '/oss?tab=izin']] as const).map(([l, v, to]) => (
+                        <Link key={l} to={to} className="rounded-md border px-1 py-2 hover:border-primary/50">
+                          <p className="text-xl font-bold tabular">{formatNumber(v)}</p>
+                          <p className="text-[11px] text-muted-foreground">{l}</p>
+                        </Link>
+                      ))}
+                    </div>
+                    <dl className="mt-3 space-y-1.5 text-sm">
+                      <div className="flex justify-between"><dt className="text-muted-foreground">Rencana investasi</dt><dd className="font-semibold tabular">{formatRupiahShort(oss.data.investment)}</dd></div>
+                      <div className="flex justify-between"><dt className="text-muted-foreground">Tenaga kerja</dt><dd className="font-semibold tabular">{formatNumber(oss.data.workers)} orang</dd></div>
+                      {oss.data.per_kecamatan.slice(0, 3).map((k) => (
+                        <div key={k.kecamatan} className="flex justify-between"><dt className="text-muted-foreground">Izin di {k.kecamatan}</dt><dd className="tabular">{formatNumber(k.count)}</dd></div>
+                      ))}
+                    </dl>
+                  </>
+                ) : <p className="py-6 text-center text-sm text-muted-foreground">{oss.isLoading ? 'Memuat…' : 'Belum ada data OSS. Impor ekspor List izin, DP.NIB, atau DP.Proyek.'}</p>}
               </CardContent>
             </Card>
 

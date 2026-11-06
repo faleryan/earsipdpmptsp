@@ -88,12 +88,12 @@ export async function uploadDocument(input: UploadInput, check: FileCheck) {
   return data as ArchiveDocument
 }
 
-export async function getSignedUrl(doc: Pick<ArchiveDocument, 'id' | 'storage_path' | 'file_name' | 'title'>, ttl: number, download = false) {
+export async function getSignedUrl(doc: Pick<ArchiveDocument, 'id' | 'storage_path' | 'file_name' | 'title'>, ttl: number, download = false, entityType = 'archive_documents') {
   const { data, error } = await supabase.storage
     .from(DOCUMENT_BUCKET)
     .createSignedUrl(doc.storage_path, ttl, download ? { download: doc.file_name } : undefined)
   if (error) throw error
-  void logActivity(download ? 'document.download' : 'document.preview', 'archive_documents', doc.id,
+  void logActivity(download ? 'document.download' : 'document.preview', entityType, doc.id,
     `${download ? 'Mengunduh' : 'Melihat'} dokumen "${doc.title}"`)
   return data.signedUrl
 }

@@ -127,3 +127,25 @@ diubah oleh fungsi impor (`app.importing = on`, variabel transaksi yang tidak da
 - Loading, empty, dan error state di setiap daftar; notifikasi toast untuk sukses/gagal;
   keluar otomatis setelah tidak aktif (bawaan 60 menit).
 - Responsif desktop/laptop/tablet; tabel menggulir horizontal di layar sempit.
+
+## 7. Data OSS RBA
+
+Tabel `oss_businesses` (kunci NIB), `oss_projects` (ID proyek), `oss_permits` (ID permohonan izin) diisi hanya oleh
+fungsi `oss_import_preview` / `oss_import_commit` (SECURITY DEFINER, peran Super Admin & Admin Arsip); tidak ada
+policy tulis untuk klien sehingga data OSS bersifat referensi. Relasi memakai teks kunci, bukan foreign key, karena
+ekspor OSS sering parsial (pada contoh, hanya 53% NIB di daftar izin ada di ekspor DP.NIB). View `v_oss_business`
+menggabungkan NIB dari ketiga ekspor; `v_oss_permit` menautkan izin ke proyeknya. Deteksi perubahan memakai hash
+baris kanonik seperti impor SiCANTIK. Validasi tanggal hasil impor contoh: seluruh 344 tanggal izin berada dalam
+±3 hari dari stempel waktu yang tertanam di ID permohonan izin OSS.
+
+### Dokumen OSS
+
+Tabel `oss_documents` (migration 008) menyimpan metadata PDF milik pelaku usaha OSS: kategori `nib`,
+`sertifikat_standar`, `pkkpr`, `sppl`, `pernyataan_mandiri`, `izin`, `persetujuan_lingkungan`, `dokumen_pendukung`.
+Kunci tautan adalah `nib` (wajib ada di data OSS, dicek `oss_nib_exists`) dan opsional `oss_permit_id`
+(trigger memastikan izin tersebut milik NIB yang sama). Path storage wajib `oss/{nib}/{uuid}.pdf` dan dicek terhadap
+kolom `nib`, sehingga kebijakan storage (`can_read_storage_object`) dapat menurunkan hak baca dari baris metadata.
+Versi, `is_latest`, soft delete, perlindungan kolom file, dan audit memakai pola yang sama dengan `archive_documents`.
+View `v_oss_business` menambahkan `document_count` dan `has_nib_document`; `v_oss_permit` menambahkan `document_count`.
+RPC `oss_nib_directory()` memberi daftar NIB + nama untuk pencocokan unggah massal di browser (teks PDF dibaca dengan
+pdf.js di klien; file tidak pernah dikirim ke layanan lain), dan `get_oss_document_stats()` untuk kartu ringkasan.

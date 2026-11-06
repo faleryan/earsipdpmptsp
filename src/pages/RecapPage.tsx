@@ -53,6 +53,37 @@ async function fetchCounts(from: string, to: string, basis: string) {
 }
 
 
+const OSS_FIXED: PermitTypeLite[] = [
+  { id: 'oss:nib', name: 'Nomor Induk Berusaha (NIB)', sector: '', report_group: 'PERIZINAN BERUSAHA BERBASIS RISIKO (OSS)', report_order: 1, is_active: true, group_order: 0 },
+  { id: 'oss:ss_mr', name: 'Sertifikat Standar (Menengah Rendah)', sector: '', report_group: 'PERIZINAN BERUSAHA BERBASIS RISIKO (OSS)', report_order: 2, is_active: true, group_order: 0 },
+  { id: 'oss:ss_mt', name: 'Sertifikat Standar (Menengah Tinggi)', sector: '', report_group: 'PERIZINAN BERUSAHA BERBASIS RISIKO (OSS)', report_order: 3, is_active: true, group_order: 0 },
+  { id: 'oss:izin', name: 'Izin (OSS)', sector: '', report_group: 'PERIZINAN BERUSAHA BERBASIS RISIKO (OSS)', report_order: 4, is_active: true, group_order: 0 },
+  { id: 'oss:pd:pkkpr darat', name: 'PKKPR Darat', sector: '', report_group: 'PERSYARATAN DASAR PERIZINAN BERUSAHA (OSS)', report_order: 1, is_active: true, group_order: 1 },
+  { id: 'oss:pd:sppl', name: 'SPPL', sector: '', report_group: 'PERSYARATAN DASAR PERIZINAN BERUSAHA (OSS)', report_order: 2, is_active: true, group_order: 1 },
+  { id: 'oss:pd:pernyataan mandiri skala mikro', name: 'Pernyataan Mandiri Skala Mikro', sector: '', report_group: 'PERSYARATAN DASAR PERIZINAN BERUSAHA (OSS)', report_order: 3, is_active: true, group_order: 1 },
+]
+
+interface OssCountRow { day: string; category: string; label: string; section: string; location: string | null; total: number }
+
+async function fetchOssCounts(from: string, to: string) {
+  const rows: OssCountRow[] = []
+  for (let start = 0; ; start += 1000) {
+    const { data, error } = await supabase.rpc('report_oss_daily_counts', { p_from: from, p_to: to })
+      .order('day').order('category').order('location', { nullsFirst: true }).range(start, start + 999)
+    if (error) throw error
+    rows.push(...(data as OssCountRow[]))
+    if (data.length < 1000) break
+  }
+  const types = new Map(OSS_FIXED.map((t) => [t.id, t]))
+  rows.forEach((r) => {
+    if (!types.has(r.category)) {
+      types.set(r.category, { id: r.category, name: r.label, sector: '', report_group: r.section, report_order: 9, is_active: true, group_order: r.section.startsWith('PERSYARATAN') ? 1 : 0 })
+    }
+  })
+  const counts: DailyCount[] = rows.map((r) => ({ day: r.day, permit_type_id: r.category, application_type: 'OSS', location: r.location, total: Number(r.total) }))
+  return { counts, types: Array.from(types.values()) }
+}
+
 export default function RecapPage() {
   const { profile, role } = useAuth()
   const { data: settings } = useSettings()
@@ -62,6 +93,9 @@ export default function RecapPage() {
   const [from, setFrom] = useState(initial.from)
   const [to, setTo] = useState(initial.to)
   const [basis, setBasis] = useState<'issued' | 'application'>('issued')
+  const [source, setSource] = useState<'sicantik' | 'oss' | 'all'>('sicantik')
+  const useSic = source !== 'oss'
+  const useOss = source !== 'sicantik'
   const [dim, setDim] = useState<RowDimension>('permit_type')
   const [sector, setSector] = useState('')
   const [appType, setAppType] = useState('')
@@ -88,39 +122,58 @@ export default function RecapPage() {
       return data as PermitTypeLite[]
     },
   })
-  const counts = useQuery({
+  const sicCounts = useQuery({
     queryKey: ['recap', from, to, basis],
-    enabled: !rangeError,
+    enabled: !rangeError && useSic,
     queryFn: () => fetchCounts(from, to, basis),
   })
+  const ossCounts = useQuery({
+    queryKey: ['recap', 'oss', from, to],
+    enabled: !rangeError && useOss,
+    queryFn: () => fetchOssCounts(from, to),
+  })
+  const counts = {
+    data: (useSic && !sicCounts.data) || (useOss && !ossCounts.data) ? undefined : [...(useSic ? sicCounts.data ?? [] : []), ...(useOss ? ossCounts.data?.counts ?? [] : [])],
+    error: (useSic && sicCounts.error) || (useOss && ossCounts.error) || null,
+    refetch: () => { void sicCounts.refetch(); void ossCounts.refetch() },
+  }
+  const ossTypes = ossCounts.data?.types
 
   const sectors = useMemo(() => Array.from(new Set(types.data?.map((t) => t.sector))).sort(), [types.data])
   const columns = useMemo(() => (rangeError ? [] : buildColumns(from, to, gran)), [from, to, gran, rangeError])
+  const countsData = counts.data
   const matrix = useMemo(() => {
-    if (!counts.data || !types.data || rangeError) return null
+    if (!countsData || !types.data || rangeError) return null
     const typeMap = new Map(types.data.map((t) => [t.id, t]))
     const q = locQuery.trim().toLowerCase()
-    const filtered = counts.data.filter((c) =>
-      (!sector || typeMap.get(c.permit_type_id)?.sector === sector) &&
-      (!appType || c.application_type === appType) &&
-      (!q || (c.location ?? '').toLowerCase().includes(q)))
+    // Filter sektor & jenis permohonan hanya berlaku untuk data SiCANTIK
+    const filtered = countsData.filter((c) => {
+      const isOss = c.permit_type_id.startsWith('oss:')
+      return (isOss || !sector || typeMap.get(c.permit_type_id)?.sector === sector) &&
+        (isOss || !appType || c.application_type === appType) &&
+        (!q || (c.location ?? '').toLowerCase().includes(q))
+    })
+    const sicTypes = useSic ? (sector ? types.data.filter((t) => t.sector === sector) : types.data) : []
     return buildMatrix({
       counts: filtered, columns, dimension: dim,
-      permitTypes: sector ? types.data.filter((t) => t.sector === sector) : types.data,
+      permitTypes: [...(useOss ? ossTypes ?? [] : []), ...sicTypes],
       locationRules: settings?.locationRules ?? [], showZeroRows: showZero,
     })
-  }, [counts.data, types.data, columns, dim, sector, appType, locQuery, showZero, settings?.locationRules, rangeError])
+  }, [countsData, types.data, ossTypes, useSic, useOss, columns, dim, sector, appType, locQuery, showZero, settings?.locationRules, rangeError])
 
-  const title = `REKAPITULASI ${basis === 'issued' ? 'IZIN TERBIT' : 'PERMOHONAN IZIN'} ${GRAN_LABEL[gran].toUpperCase()}`
+  const title = source === 'oss'
+    ? `REKAPITULASI PERIZINAN BERUSAHA OSS ${GRAN_LABEL[gran].toUpperCase()}`
+    : `REKAPITULASI ${basis === 'issued' ? 'IZIN TERBIT' : 'PERMOHONAN IZIN'} ${GRAN_LABEL[gran].toUpperCase()}`
   const subtitleParts = [
     dim === 'permit_type' ? 'Per jenis izin' : dim === 'location' ? 'Per lokasi izin' : 'Per kecamatan',
     sector && `sektor ${sector}`, appType && `jenis permohonan ${appType}`, locQuery.trim() && `lokasi memuat "${locQuery.trim()}"`,
-    basis === 'issued' ? 'berdasarkan tanggal penetapan' : 'berdasarkan tanggal permohonan',
+    useSic && (basis === 'issued' ? 'berdasarkan tanggal penetapan' : 'berdasarkan tanggal permohonan'),
+    source === 'all' ? 'sumber SiCANTIK & OSS RBA' : source === 'oss' ? 'sumber OSS RBA (tanggal terbit NIB/izin)' : 'sumber SiCANTIK',
   ].filter(Boolean)
   const subtitle = subtitleParts.join(' · ')
   const period = rangeError ? '' : periodLabel(from, to)
   const total = matrix?.find((r) => r.type === 'total')?.values.at(-1) ?? 0
-  const fileBase = `rekap-${basis === 'issued' ? 'izin-terbit' : 'permohonan'}-${gran === 'day' ? 'harian' : gran === 'week' ? 'mingguan' : 'bulanan'}-${from}_${to}`
+  const fileBase = `rekap-${source === 'oss' ? 'oss' : basis === 'issued' ? 'izin-terbit' : 'permohonan'}${source === 'all' ? '-gabungan' : ''}-${gran === 'day' ? 'harian' : gran === 'week' ? 'mingguan' : 'bulanan'}-${from}_${to}`
 
   const docMeta = (s: Signatories) => ({
     title, period: `Periode: ${period}`, subtitle, rowHeader: DIM_LABEL[dim], identity: settings!.identity,
@@ -207,10 +260,18 @@ export default function RecapPage() {
               </div>
             </div>
           </div>
-          <div className="grid gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-6">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="rc-source">Sumber data</Label>
+              <NativeSelect id="rc-source" value={source} onChange={(e) => setSource(e.target.value as typeof source)}>
+                <option value="sicantik">SiCANTIK (izin non-berusaha)</option>
+                <option value="oss">OSS RBA (perizinan berusaha)</option>
+                <option value="all">Gabungan SiCANTIK + OSS</option>
+              </NativeSelect>
+            </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="rc-basis">Yang dihitung</Label>
-              <NativeSelect id="rc-basis" value={basis} onChange={(e) => setBasis(e.target.value as 'issued' | 'application')}>
+              <NativeSelect id="rc-basis" disabled={!useSic} value={basis} onChange={(e) => setBasis(e.target.value as 'issued' | 'application')}>
                 <option value="issued">Izin terbit (tanggal penetapan)</option>
                 <option value="application">Permohonan masuk (tanggal permohonan)</option>
               </NativeSelect>
@@ -225,14 +286,14 @@ export default function RecapPage() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="rc-sector">Sektor</Label>
-              <NativeSelect id="rc-sector" value={sector} onChange={(e) => setSector(e.target.value)}>
+              <NativeSelect id="rc-sector" disabled={!useSic} value={sector} onChange={(e) => setSector(e.target.value)}>
                 <option value="">Semua sektor</option>
                 {sectors.map((s) => <option key={s} value={s}>{s}</option>)}
               </NativeSelect>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="rc-type">Jenis permohonan</Label>
-              <NativeSelect id="rc-type" value={appType} onChange={(e) => setAppType(e.target.value)}>
+              <NativeSelect id="rc-type" disabled={!useSic} value={appType} onChange={(e) => setAppType(e.target.value)}>
                 <option value="">Semua</option>
                 {APPLICATION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </NativeSelect>

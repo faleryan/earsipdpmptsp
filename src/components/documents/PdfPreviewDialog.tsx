@@ -17,15 +17,22 @@ import { ErrorState, FullPageLoader } from '@/components/common/States'
 import { AccessBadge } from '@/components/common/Badges'
 import type { ArchiveDocument } from '@/types'
 
+/** Dokumen yang dapat dipratinjau (dokumen arsip maupun dokumen OSS). */
+export type PreviewDoc = Pick<ArchiveDocument, 'id' | 'title' | 'version' | 'access_level' | 'file_name' | 'file_size' | 'document_number' | 'document_date' | 'storage_path'> & {
+  category: string
+  /** tabel asal untuk audit trail */
+  entity?: 'archive_documents' | 'oss_documents'
+}
+
 export function useCanDownload() {
   const { role } = useAuth()
   const { data } = useSettings()
   return Boolean(role && (data?.downloadRoles ?? ['super_admin', 'admin_arsip', 'pimpinan']).includes(role))
 }
 
-export async function downloadDocument(doc: ArchiveDocument, ttl: number) {
+export async function downloadDocument(doc: PreviewDoc, ttl: number) {
   try {
-    const url = await getSignedUrl(doc, ttl, true)
+    const url = await getSignedUrl(doc, ttl, true, doc.entity)
     const a = document.createElement('a')
     a.href = url
     a.rel = 'noopener'
@@ -37,7 +44,7 @@ export async function downloadDocument(doc: ArchiveDocument, ttl: number) {
   }
 }
 
-export function PdfPreviewDialog({ doc, onOpenChange }: { doc: ArchiveDocument | null; onOpenChange: (o: boolean) => void }) {
+export function PdfPreviewDialog({ doc, onOpenChange }: { doc: PreviewDoc | null; onOpenChange: (o: boolean) => void }) {
   const { data: settings } = useSettings()
   const canDownload = useCanDownload()
   const [url, setUrl] = useState<string | null>(null)
@@ -51,7 +58,7 @@ export function PdfPreviewDialog({ doc, onOpenChange }: { doc: ArchiveDocument |
     setUrl(null); setError(null); setPage(1); setPages(0)
     if (!doc) return
     let alive = true
-    getSignedUrl(doc, ttl).then((u) => alive && setUrl(u)).catch((e) => alive && setError(e))
+    getSignedUrl(doc, ttl, false, doc.entity).then((u) => alive && setUrl(u)).catch((e) => alive && setError(e))
     return () => { alive = false }
   }, [doc, ttl])
 

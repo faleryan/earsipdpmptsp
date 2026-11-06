@@ -10,6 +10,7 @@ rows.json = array baris kanonik (hasil pemetaan kolom), contoh dibuat oleh
 supabase/tests/xlsx_to_rows.py dari file ekspor SiCANTIK.
 """
 import json
+import os
 import sys
 import uuid
 
@@ -407,7 +408,7 @@ c = as_user(users["super"])
 c.execute("select export_backup() b")
 backup = c.fetchone()["b"]
 conn.commit()
-check("cadangan berisi 13 tabel", len(backup["tables"]) == 13, list(backup["counts"].items()))
+check("cadangan berisi 17 tabel", len(backup["tables"]) == 17, list(backup["counts"].items()))
 c = as_user(users["super"])
 c.execute("select restore_backup(%s::jsonb, true) r", (json.dumps(backup, default=str),))
 check("pemulihan uji (dry run) berhasil", c.fetchone()["r"]["dry_run"])
@@ -498,6 +499,130 @@ c.execute("select is_renewed from v_permit_expiry where permit_id=%s", (ids[1],)
 check("izin yang sudah diajukan perpanjangan keluar dari notifikasi", c.fetchone()["is_renewed"] and b2.get(3) == 1, b2)
 conn.rollback()
 expect_error("operator tidak dapat menghitung ulang masa berlaku", lambda: as_user(users["operator"]).execute("select recalculate_permit_validity(%s)", (pt_id,)))
+
+print("\n== 14. Data OSS (NIB, proyek, izin)")
+OSS_DIR = os.path.dirname(os.path.abspath(ROWS_FILE))
+def oss_rows(name):
+    path = os.path.join(OSS_DIR, f"{name}.json")
+    return json.load(open(path)) if os.path.exists(path) else None
+
+oss = {d: oss_rows(d) for d in ["oss_nib", "oss_projects", "oss_permits"]}
+if not all(oss.values()):
+    print("  (dilewati: file oss_*.json tidak ada di folder rows.json)")
+else:
+    def run_oss(dataset, rows_, update_changed=False):
+        c = as_user(users["admin"])
+        c.execute("insert into import_batches (file_name, total_rows, dataset, source_system) values (%s, %s, %s, 'OSS RBA') returning id",
+                  (f"{dataset}.xlsx", len(rows_), dataset))
+        bid = c.fetchone()["id"]; conn.commit()
+        tot = {}
+        for i in range(0, len(rows_), 200):
+            c = as_user(users["admin"])
+            c.execute("select oss_import_commit(%s, %s, %s::jsonb, %s::jsonb) r", (bid, dataset, json.dumps(rows_[i:i+200]), json.dumps({"update_changed": update_changed})))
+            for k, v in c.fetchone()["r"].items(): tot[k] = tot.get(k, 0) + v
+            conn.commit()
+        c = as_user(users["admin"]); c.execute("select * from import_finalize_batch(%s)", (bid,)); b = c.fetchone(); conn.commit()
+        return bid, tot, b
+
+    expect_error("operator tidak dapat impor OSS", lambda: as_user(users["operator"]).execute("select oss_import_preview('oss_nib', %s::jsonb)", (json.dumps(oss["oss_nib"][:2]),)))
+    # urutan sengaja: izin dulu, lalu proyek, lalu NIB (relasi tetap terbentuk)
+    _, t_pm, b_pm = run_oss("oss_permits", oss["oss_permits"])
+    _, t_pr, _ = run_oss("oss_projects", oss["oss_projects"])
+    _, t_nb, _ = run_oss("oss_nib", oss["oss_nib"])
+    print("    izin", t_pm, "| proyek", t_pr, "| nib", t_nb)
+    check("344 izin OSS tersimpan (1 baris tanpa NIB tetap masuk dengan peringatan)", t_pm["inserted"] == 344 and t_pm["failed"] == 0, t_pm)
+    check("200 proyek tersimpan", t_pr["inserted"] == 200 and t_pr["failed"] == 0, t_pr)
+    check("80 NIB tersimpan", t_nb["inserted"] == 80 and t_nb["failed"] == 0, t_nb)
+    cur = admin_cursor()
+    cur.execute("select count(*) n from oss_projects where kecamatan = 'Tasifeto Timur'")
+    check("kecamatan 'TasifetoTimur' dinormalisasi", cur.fetchone()["n"] == 24)
+    cur.execute("select land_area, investment, workers from oss_projects where project_id='R-202603151137326619385'")
+    r = cur.fetchone()
+    check("luas '14.177' dibaca 14177 (format Indonesia)", float(r["land_area"]) == 14177 and int(r["investment"]) == 10000000 and r["workers"] == 10, r)
+    cur.execute("select oss_issued_date::text d from oss_businesses where nib='1503260031218'")
+    check("tanggal MM/DD/YYYY file NIB terbaca benar", cur.fetchone()["d"] == "2026-03-15")
+    cur.execute("select kl_sector from oss_permits where kl_sector like 'Kementerian Agraria%' limit 1")
+    check("tag HTML <br> dibersihkan", "<br>" not in cur.fetchone()["kl_sector"])
+    conn.rollback()
+    c = as_user(users["pimpinan"])
+    c.execute("select count(*) n, count(*) filter (where has_nib_record) wn, sum(permit_count) p from v_oss_business")
+    r = c.fetchone()
+    check("pelaku usaha gabungan dari 3 ekspor (NIB tanpa profil tetap tampil)", r["n"] > 80 and r["wn"] == 80 and r["p"] == 343, r)
+    c.execute("select count(*) n from v_oss_permit where project_record_id is not null")
+    check("izin tertaut ke proyek melalui Id Proyek", c.fetchone()["n"] > 250)
+    c.execute("select category, sum(total) n from report_oss_daily_counts('2026-01-01','2026-12-31') group by category")
+    cats = {x["category"]: int(x["n"]) for x in c.fetchall()}
+    print("    rekap OSS:", {k: v for k, v in cats.items() if not k.startswith('oss:pd')}, "PD", sum(v for k, v in cats.items() if k.startswith('oss:pd')))
+    check("rekap: SS Menengah Rendah & Tinggi terhitung", cats.get("oss:ss_mr", 0) > 0 and cats.get("oss:ss_mt", 0) > 0)
+    check("rekap: izin 'Menunggu Verifikasi' tidak dihitung", sum(v for k, v in cats.items() if k != "oss:nib") == 342, sum(v for k, v in cats.items() if k != "oss:nib"))
+    c.execute("select get_oss_summary() s")
+    sm = c.fetchone()["s"]
+    check("ringkasan OSS: investasi & TKI", float(sm["investment"]) > 0 and sm["workers"] > 0 and sm["waiting"] == 2, {k: sm[k] for k in ["projects","permits","investment","workers","waiting"]})
+    conn.rollback()
+    c = as_user(users["super"]); c.execute("update oss_permits set company_name='X'")
+    check("data OSS tidak dapat diubah langsung (tanpa policy UPDATE)", c.rowcount == 0); conn.rollback()
+    # impor ulang & perubahan
+    _, t2, _ = run_oss("oss_permits", oss["oss_permits"])
+    check("impor ulang OSS: semua tidak berubah", t2["unchanged"] == 344 and t2["inserted"] == 0, t2)
+    changed = json.loads(json.dumps(oss["oss_permits"]))
+    changed[0]["permit_status"] = "Dicabut"
+    c = as_user(users["admin"])
+    c.execute("select oss_import_preview('oss_permits', %s::jsonb) p", (json.dumps(changed[:2]),))
+    pv = c.fetchone()["p"]; conn.rollback()
+    check("perubahan status izin OSS terdeteksi", pv[0]["status"] == "changed" and pv[0]["changes"][0]["field"] == "permit_status" and pv[1]["status"] == "unchanged", pv[0])
+    _, t3, _ = run_oss("oss_permits", changed[:2], update_changed=True)
+    check("perubahan OSS diperbarui", t3["updated"] == 1 and t3["unchanged"] == 1, t3)
+    bad = [{"row_number": 5, "permit_request_id": "I-X", "nib": "12345", "company_name": "A", "permit_date": "2026-13-45", "permit_category": "Persyaratan Dasar", "document_name": "SPPL"}]
+    _, t4, b4 = run_oss("oss_permits", bad)
+    check("validasi OSS: tanggal salah ditolak", t4["failed"] == 1 and b4["status"] == "failed", t4)
+
+    print("\n== 15. Dokumen OSS")
+    NIB = oss["oss_nib"][0]["nib"]
+    c = as_user(users["operator"])
+    p_ok = f"oss/{NIB}/{uuid.uuid4()}.pdf"
+    c.execute("insert into storage.objects (bucket_id, name, owner_id) values ('arsip-dokumen', %s, %s)", (p_ok, str(users["operator"])))
+    check("operator dapat unggah file ke path oss/{nib}", c.rowcount == 1)
+    c.execute("""insert into oss_documents (nib, category, title, storage_path, file_name, file_size)
+                 values (%s, 'nib', 'NIB', %s, 'nib.pdf', 1200) returning version, document_group_id, uploaded_by""", (NIB, p_ok))
+    r = c.fetchone()
+    check("dokumen NIB tersimpan versi 1", r["version"] == 1 and str(r["uploaded_by"]) == str(users["operator"]))
+    gid = r["document_group_id"]
+    p2 = f"oss/{NIB}/{uuid.uuid4()}.pdf"
+    c.execute("insert into storage.objects (bucket_id, name, owner_id) values ('arsip-dokumen', %s, %s)", (p2, str(users["operator"])))
+    c.execute("""insert into oss_documents (nib, category, title, storage_path, file_name, file_size, document_group_id)
+                 values (%s, 'nib', 'NIB', %s, 'nib2.pdf', 1300, %s) returning version""", (NIB, p2, gid))
+    check("versi baru dokumen OSS = 2", c.fetchone()["version"] == 2)
+    conn.commit()
+    expect_error("unggah untuk NIB yang tidak dikenal ditolak", lambda: as_user(users["operator"]).execute(
+        "insert into storage.objects (bucket_id, name, owner_id) values ('arsip-dokumen', %s, %s)", (f"oss/9999999999999/{uuid.uuid4()}.pdf", str(users["operator"]))))
+    expect_error("path dokumen harus sesuai NIB", lambda: as_user(users["admin"]).execute(
+        "insert into oss_documents (nib, category, title, storage_path, file_name, file_size) values (%s, 'nib', 'X', %s, 'x.pdf', 10)",
+        (NIB, f"oss/{oss['oss_nib'][1]['nib']}/{uuid.uuid4()}.pdf")))
+    other_permit = sql_one = None
+    cur = admin_cursor(); cur.execute("select id from oss_permits where nib <> %s and nib is not null limit 1", (NIB,)); other = cur.fetchone()["id"]; conn.rollback()
+    expect_error("izin milik NIB lain tidak dapat ditautkan", lambda: as_user(users["admin"]).execute(
+        "insert into oss_documents (nib, oss_permit_id, category, title, storage_path, file_name, file_size) values (%s, %s, 'pkkpr', 'X', %s, 'x.pdf', 10)",
+        (NIB, other, f"oss/{NIB}/{uuid.uuid4()}.pdf")))
+    expect_error("pimpinan tidak dapat unggah dokumen OSS", lambda: as_user(users["pimpinan"]).execute(
+        "insert into oss_documents (nib, category, title, storage_path, file_name, file_size) values (%s, 'nib', 'X', %s, 'x.pdf', 10)", (NIB, f"oss/{NIB}/{uuid.uuid4()}.pdf")))
+    c = as_user(users["pimpinan"])
+    c.execute("select can_read_storage_object(%s) ok", (p2,))
+    check("pimpinan dapat membuat signed URL dokumen OSS", c.fetchone()["ok"])
+    c.execute("select has_nib_document, document_count from v_oss_business where nib=%s", (NIB,))
+    r = c.fetchone()
+    check("kelengkapan file NIB terlihat di data pelaku usaha", r["has_nib_document"] and r["document_count"] == 1, r)
+    c.execute("select get_oss_document_stats() s")
+    check("statistik dokumen OSS", c.fetchone()["s"]["with_nib_document"] == 1)
+    conn.rollback()
+    c = as_user(users["operator"])
+    c.execute("update oss_documents set file_size = 1, storage_path = 'oss/x', title = 'NIB baru' where storage_path=%s returning file_size, storage_path", (p2,))
+    r = c.fetchone()
+    check("metadata file dokumen OSS tidak dapat dimanipulasi", r["file_size"] == 1300 and r["storage_path"] == p2)
+    conn.rollback()
+    c = as_user(users["operator"])
+    c.execute("delete from storage.objects where name=%s", (p2,))
+    check("file yang sudah tercatat tidak dapat dihapus pengunggah", c.rowcount == 0)
+    conn.rollback()
 
 print(f"\nHasil: {passed} lulus, {failed} gagal")
 sys.exit(1 if failed else 0)

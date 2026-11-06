@@ -1,5 +1,5 @@
 import {
-  Archive, BarChart3, CalendarClock, Table2, Building2, ClipboardList, FileBadge2, FileSearch, FileStack, FileUp, FolderTree,
+  Archive, BarChart3, BriefcaseBusiness, CalendarClock, Table2, Building2, ClipboardList, FileBadge2, FileSearch, FileStack, FileUp, FolderTree,
   History, LayoutDashboard, ScrollText, Settings, Tags, Users, UserSquare2,
 } from 'lucide-react'
 import type { Permission } from '@/lib/permissions'
@@ -43,8 +43,9 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
-    label: 'SiCANTIK',
+    label: 'Sumber data',
     items: [
+      { to: '/oss', label: 'Data OSS RBA', icon: BriefcaseBusiness },
       { to: '/impor', label: 'Impor data', icon: FileUp, permission: 'import.run', end: true },
       { to: '/impor/riwayat', label: 'Riwayat impor', icon: History },
     ],

@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import { NativeSelect } from '@/components/ui/input'
 import { downloadErrorReport } from './importTypes'
 import type { ImportBatch, ImportError } from '@/types'
+import { DATASETS } from '@/lib/import/datasets'
 
 export default function ImportBatchPage() {
   const { id } = useParams<{ id: string }>()
@@ -69,7 +70,7 @@ export default function ImportBatchPage() {
         description={<span className="flex flex-wrap items-center gap-2"><ImportStatusBadge status={b.status} /> {formatDateTime(b.created_at)} oleh {b.importer?.full_name || b.importer?.email || '—'}</span>}
         actions={
           <>
-            <Button variant="outline" asChild><Link to={`/pencarian?importBatchId=${b.id}`}><Search /> Arsip dari batch ini</Link></Button>
+            <Button variant="outline" asChild><Link to={DATASETS[b.dataset ?? 'sicantik'].resultLink(b.id).to}><Search /> {DATASETS[b.dataset ?? 'sicantik'].resultLink(b.id).label}</Link></Button>
             {can('import.run') && (
               <Button variant="outline" loading={downloading} onClick={async () => {
                 setDownloading(true)
@@ -113,7 +114,8 @@ export default function ImportBatchPage() {
           <CardHeader><CardTitle>Detail proses</CardTitle></CardHeader>
           <CardContent className="space-y-3 text-sm">
             <p><span className="text-muted-foreground">Ukuran:</span> {formatBytes(b.file_size)}{b.sheet_name ? ` · sheet ${b.sheet_name}` : ''}</p>
-            <p><span className="text-muted-foreground">Kunci pencocokan:</span> {b.match_key === 'source_id' ? 'ID SiCANTIK' : 'Nomor permohonan'}</p>
+            <p><span className="text-muted-foreground">Jenis data:</span> {DATASETS[b.dataset ?? 'sicantik'].label}</p>
+            <p><span className="text-muted-foreground">Kunci pencocokan:</span> {DATASETS[b.dataset ?? 'sicantik'].keyLabel(b.match_key)}</p>
             <p><span className="text-muted-foreground">Data berubah:</span> {(b.options as { update_changed?: boolean }).update_changed ? 'diperbarui' : 'dilewati'}</p>
             <p><span className="text-muted-foreground">Mulai – selesai:</span> {formatDateTime(b.started_at)} – {formatDateTime(b.finished_at)}</p>
             {b.file_hash && <p className="break-all text-xs"><span className="text-muted-foreground">SHA-256:</span> {b.file_hash}</p>}

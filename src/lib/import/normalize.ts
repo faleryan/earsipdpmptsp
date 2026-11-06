@@ -1,4 +1,4 @@
-import { TARGET_FIELDS, type Mapping, type TargetField } from './fields'
+import { TARGET_FIELDS, type FieldDef, type Mapping } from './fields'
 import type { Cell, DataTable } from './parse'
 
 export type DateOrder = 'dmy' | 'mdy'
@@ -80,16 +80,17 @@ export function textCell(cell: Cell | undefined): string | null {
 export function buildCanonicalRows(
   table: DataTable,
   mapping: Mapping,
-  opts: { dateOrder: DateOrder; matchKey: 'source_id' | 'application_number' },
+  opts: { dateOrder: DateOrder; keyField: string; keyLabel?: string; fields?: FieldDef[] },
 ) {
+  const fields = opts.fields ?? TARGET_FIELDS
   const rows: CanonRow[] = []
   const issues: ClientIssue[] = []
   const seen = new Map<string, number>()
 
   for (const r of table.rows) {
     const canon: CanonRow = { row_number: r.rowNumber }
-    for (const f of TARGET_FIELDS) {
-      const src = mapping[f.key as TargetField]
+    for (const f of fields) {
+      const src = mapping[f.key]
       if (!src) continue
       const cell = r.values[src]
       canon[f.key] = f.date ? parseDateCell(cell, opts.dateOrder) : textCell(cell)
@@ -97,16 +98,16 @@ export function buildCanonicalRows(
     // baris kosong total dilewati
     if (Object.keys(canon).filter((k) => k !== 'row_number').every((k) => canon[k] === null)) continue
 
-    const keyRaw = canon[opts.matchKey]
+    const keyRaw = canon[opts.keyField]
     const key = typeof keyRaw === 'string' ? keyRaw.trim().toLowerCase() : keyRaw
     if (key !== null && key !== undefined && key !== '' && key !== '-') {
       const first = seen.get(String(key))
       if (first !== undefined) {
         issues.push({
           row_number: r.rowNumber,
-          field: opts.matchKey,
+          field: opts.keyField,
           type: 'duplicate_in_file',
-          message: `Duplikat dalam file: ${opts.matchKey === 'source_id' ? 'ID SiCANTIK' : 'nomor permohonan'} "${keyRaw}" sudah ada di baris ${first}`,
+          message: `Duplikat dalam file: ${opts.keyLabel ?? opts.keyField} "${keyRaw}" sudah ada di baris ${first}`,
           row: canon,
         })
         continue
@@ -127,4 +128,28 @@ export function sampleValues(table: DataTable, header: string, n = 3) {
     if (out.length >= n) break
   }
   return out
+}
+
+/**
+ * Tebak urutan tanggal teks (DD/MM vs MM/DD) dari isi kolom tanggal yang dipetakan.
+ * Mengembalikan null bila semua nilai ambigu (hari & bulan <= 12).
+ */
+export function detectDateOrder(table: DataTable, mapping: Mapping, fields: FieldDef[]): DateOrder | null {
+  let dmy = 0
+  let mdy = 0
+  const cols = fields.filter((f) => f.date && mapping[f.key]).map((f) => mapping[f.key]!)
+  for (const r of table.rows.slice(0, 2000)) {
+    for (const col of cols) {
+      const cell = r.values[col]
+      if (!cell || typeof cell.raw !== 'string') continue
+      const m = cell.raw.trim().match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})/)
+      if (!m) continue
+      if (+m[1] > 12 && +m[2] <= 12) dmy++
+      else if (+m[2] > 12 && +m[1] <= 12) mdy++
+    }
+  }
+  if (dmy && !mdy) return 'dmy'
+  if (mdy && !dmy) return 'mdy'
+  if (dmy || mdy) return dmy >= mdy ? 'dmy' : 'mdy'
+  return null
 }

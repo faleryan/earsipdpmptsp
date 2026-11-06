@@ -263,6 +263,7 @@ export interface ImportBatch {
   file_hash: string | null
   sheet_name: string | null
   source_system: string
+  dataset: 'sicantik' | 'oss_nib' | 'oss_projects' | 'oss_permits'
   match_key: 'source_id' | 'application_number'
   column_mapping: Record<string, string>
   options: Record<string, unknown>
@@ -341,4 +342,128 @@ export interface DashboardStats {
   per_category: { category: DocumentCategory; count: number }[]
   recent_imports: (Pick<ImportBatch, 'id' | 'file_name' | 'status' | 'total_rows' | 'inserted_count' | 'updated_count' | 'unchanged_count' | 'skipped_count' | 'failed_count' | 'created_at' | 'finished_at'> & { imported_by_name: string | null })[]
   recent_activity: { id: string; action: string; entity_type: string | null; description: string | null; created_at: string; user_email: string | null; user_name: string | null }[]
+}
+
+/* ----------------------------- Data OSS RBA ----------------------------- */
+export interface OssPermitRow {
+  id: string
+  permit_request_id: string
+  nib: string | null
+  company_name: string
+  oss_issued_date: string | null
+  investment_status: string | null
+  kab_kota: string | null
+  kecamatan: string | null
+  kelurahan: string | null
+  project_id: string | null
+  risk_code: 'R' | 'MR' | 'MT' | 'T' | null
+  kbli: string | null
+  permit_date: string
+  permit_category: string
+  document_name: string
+  authority: string | null
+  permit_status: string | null
+  authority_official: string | null
+  kl_sector: string | null
+  project_record_id: string | null
+  project_name: string | null
+  kbli_title: string | null
+  project_risk: string | null
+  business_scale: string | null
+  investment: number | null
+  last_import_batch_id: string | null
+  updated_at: string
+  document_count: number
+}
+
+export interface OssProjectRow {
+  id: string
+  project_id: string
+  nib: string
+  project_type: string | null
+  company_name: string
+  oss_issued_date: string | null
+  investment_status: string | null
+  company_type: string | null
+  risk_level: string | null
+  project_name: string | null
+  business_scale: string | null
+  address: string | null
+  kab_kota: string | null
+  kecamatan: string | null
+  kelurahan: string | null
+  submitted_date: string | null
+  kbli: string | null
+  kbli_title: string | null
+  kl_sector: string | null
+  land_area: number | null
+  land_unit: string | null
+  investment: number | null
+  workers: number | null
+}
+
+export interface OssBusinessRow {
+  nib: string
+  name: string
+  oss_issued_date: string | null
+  company_type: string | null
+  business_scale: string | null
+  investment_status: string | null
+  address: string | null
+  kecamatan: string | null
+  kelurahan: string | null
+  has_nib_record: boolean
+  project_count: number
+  permit_count: number
+  investment: number
+  workers: number
+  last_permit_date: string | null
+  document_count: number
+  has_nib_document: boolean
+}
+
+export interface OssSummary {
+  businesses: number
+  new_nib: number
+  projects: number
+  permits: number
+  investment: number
+  workers: number
+  waiting: number
+  per_risk: { risk: string; count: number }[]
+  per_kecamatan: { kecamatan: string; count: number }[]
+  per_document: { document: string; count: number }[]
+  last_import: string | null
+}
+
+export interface OssDocument {
+  id: string
+  nib: string
+  oss_permit_id: string | null
+  category: string
+  title: string
+  description: string | null
+  document_number: string | null
+  document_date: string | null
+  storage_bucket: string
+  storage_path: string
+  file_name: string
+  file_size: number
+  mime_type: string
+  checksum_sha256: string | null
+  page_count: number | null
+  document_group_id: string
+  version: number
+  is_latest: boolean
+  change_note: string | null
+  access_level: AccessLevel
+  uploaded_by: string | null
+  deleted_at: string | null
+  created_at: string
+  updated_at: string
+  // dari v_oss_document_list
+  company_name?: string | null
+  permit_document_name?: string | null
+  permit_request_id?: string | null
+  uploaded_by_name?: string | null
 }
